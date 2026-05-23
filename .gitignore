@@ -5,4 +5,5 @@ dist/
 *.spec
 .venv/
 venv/
+logs/
 .DS_Store
