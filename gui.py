@@ -42,16 +42,27 @@ class App:
         self.no_activate_var = tk.BooleanVar(value=True)
         self.require_foreground_var = tk.BooleanVar(value=True)
         self.resume_var = tk.BooleanVar(value=False)
+        self.mode_var = tk.StringVar(value="foreground")
+        self.hint_var = tk.StringVar()
 
         frm = ttk.Frame(root, padding=12)
         frm.grid(row=0, column=0)
+
+        mode_box = ttk.LabelFrame(frm, text="运行模式", padding=6)
+        mode_box.grid(row=0, column=0, columnspan=2, sticky="we", pady=(0, 6))
+        ttk.Radiobutton(mode_box, text="模式一：前台挂机（推荐，稳）",
+                        variable=self.mode_var, value="foreground",
+                        command=self.apply_mode).grid(row=0, column=0, sticky="w")
+        ttk.Radiobutton(mode_box, text="模式二：后台尝试（实验，不保证）",
+                        variable=self.mode_var, value="background",
+                        command=self.apply_mode).grid(row=1, column=0, sticky="w")
 
         fields = [
             ("启动倒计时（秒）", self.startup_var),
             ("每圈前进时间（秒）", self.drive_var),
             ("总运行时间（分钟，0=一直跑）", self.total_var),
         ]
-        r = 0
+        r = 1
         for label, var in fields:
             ttk.Label(frm, text=label).grid(row=r, column=0, sticky="w", pady=3)
             ttk.Entry(frm, textvariable=var, width=10).grid(row=r, column=1, pady=3)
@@ -72,6 +83,10 @@ class App:
         self.confirm_btn.grid(row=1, column=0, padx=4, pady=(6, 0))
         self.back_btn = ttk.Button(btns, text="按B返回", command=lambda: self.tap_button("b"))
         self.back_btn.grid(row=1, column=1, padx=4, pady=(6, 0))
+
+        ttk.Label(frm, text="高级（切换模式会自动设置，可手动覆盖）",
+                  foreground="#888").grid(row=r, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        r += 1
 
         ttk.Checkbutton(frm, text="游戏模式：点击本窗口不抢焦点",
                         variable=self.no_activate_var,
@@ -94,7 +109,7 @@ class App:
                         variable=self.keep_var).grid(row=r, column=0, columnspan=2, sticky="w")
         r += 1
 
-        ttk.Label(frm, text="运行时不要操作其他窗口；如果失焦，脚本计时会暂停，回到游戏前台后继续。",
+        ttk.Label(frm, textvariable=self.hint_var,
                   foreground="#666", wraplength=320).grid(row=r, column=0, columnspan=2, sticky="w")
         r += 1
 
@@ -102,7 +117,7 @@ class App:
         self.log.grid(row=r, column=0, columnspan=2, pady=(8, 0))
         self._log(f"日志文件：{LOG_PATH}")
         self.hotkey.start()
-        self.root.after(300, self.apply_game_mode)
+        self.root.after(300, self.apply_mode)
         self.root.after(500, self.connect_gamepad_async)
 
         self.root.after(100, self._tick)
@@ -246,6 +261,25 @@ class App:
     def _on_focus_restored(self):
         # Leave menu recovery to the user or the explicit checkbox.
         pass
+
+    def apply_mode(self):
+        if self.mode_var.get() == "background":
+            self.no_activate_var.set(True)
+            self.auto_focus_var.set(False)
+            self.require_foreground_var.set(False)
+            self.keep_var.set(True)
+            self.hint_var.set("后台尝试：可去用别的窗口；建议游戏用无边框窗口。"
+                              "地平线很可能失焦就暂停，本模式不保证有效，但零封号风险。")
+            self._log("已切到【后台尝试】模式（非注入，不保证）。")
+        else:
+            self.no_activate_var.set(True)
+            self.auto_focus_var.set(True)
+            self.require_foreground_var.set(True)
+            self.keep_var.set(False)
+            self.hint_var.set("前台挂机：游戏保持前台，期间请勿操作其他窗口；"
+                              "失焦会自动暂停计时并尝试切回。")
+            self._log("已切到【前台挂机】模式（推荐，稳）。")
+        self.apply_game_mode()
 
     def apply_game_mode(self):
         try:

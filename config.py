@@ -1,7 +1,8 @@
 # Default settings. The GUI reads these on startup; you can also edit them here.
 
 STARTUP_DELAY = 5.0     # seconds to wait before driving (time to switch into Forza)
-DRIVE_SECONDS = 44.0    # how long to hold throttle each lap (your run length)
+DRIVE_SECONDS = 180.0   # seconds to hold throttle per lap. SET THIS to your route's
+                        # real length (a 44s test diverged from a ~3 min actual run).
 TOTAL_MINUTES = 10.0    # total run time; 0 = run until you press Stop
 
 # Restart-sequence timing (rarely needs changing):
