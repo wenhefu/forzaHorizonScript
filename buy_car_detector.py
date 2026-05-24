@@ -24,6 +24,11 @@ STATE_POST_PURCHASE_VIEW = "post_purchase_view"
 STATE_VEHICLE_TAB = "vehicle_tab"
 STATE_UPGRADE_MENU = "upgrade_menu"
 STATE_SKILL_MASTERY = "skill_mastery"
+STATE_SKILL_POINTS_EXHAUSTED = "skill_points_exhausted"
+STATE_CREATIVE_HUB = "creative_hub"
+STATE_EVENTLAB_MENU = "eventlab_menu"
+STATE_EVENTLAB_EVENTS = "eventlab_events"
+STATE_EVENTLAB_FAVORITES = "eventlab_favorites"
 STATE_UNKNOWN = "unknown"
 
 
@@ -384,6 +389,9 @@ class BuyCarScreenDetector:
         if has(all_text, ["控制器未连接", "重新连接控制器"]):
             return updated(STATE_CONTROLLER_DISCONNECTED, 0.98)
 
+        if has(all_text, ["不够购买额外加成", "技术点数不足", "不足以解锁", "额外加成"]):
+            return updated(STATE_SKILL_POINTS_EXHAUSTED, 0.98)
+
         if has(main_text, ["搜寻"]) and has(main_text, ["关键词", "创建者", "共享代码", "输入文本"]):
             return updated(STATE_SEARCH_DIALOG, 0.94)
 
@@ -402,6 +410,17 @@ class BuyCarScreenDetector:
 
         if vehicle_tab_seen:
             return updated(STATE_VEHICLE_TAB, 0.94)
+
+        if has(main_text, ["创意中心"]) and has(mid_text, ["EVENTLAB", "车库布局", "我的创意中心", "涂装设计"]):
+            return updated(STATE_CREATIVE_HUB, 0.92)
+
+        if has(main_text, ["EVENTLAB"]) and has(mid_text, ["创建", "游玩赛事", "参加挑战", "预制件", "寻找预制件"]):
+            return updated(STATE_EVENTLAB_MENU, 0.92)
+
+        if has(main_text, ["赛事"]) and has(mid_text, ["精选", "热门", "本月最佳", "最新最热"]):
+            if has(mid_text, ["我的收藏", "收藏"]):
+                return updated(STATE_EVENTLAB_FAVORITES, 0.92)
+            return updated(STATE_EVENTLAB_EVENTS, 0.90)
 
         if has(mid_text, ["收集簿", "世界地图", "下一站", "欢迎来到", "FESTIVALPLAYLIST"]):
             return updated(STATE_PAUSE_MENU, 0.92)

@@ -38,16 +38,16 @@ When mastery points run out, Forza shows a modal similar to:
 Not enough points to purchase extra perk.
 ```
 
-Current behavior is acceptable for the standalone mode 2 checkpoint:
+Standalone mode 2 behavior is acceptable:
 
-- The script stops after failing to confirm the final wheelspin skill.
+- The script now marks the exhausted-points modal as a specific stop reason.
 - This prevents continuing the buy loop after points are exhausted.
 
 This exhausted-points modal is the intended trigger for the next combined mode.
 
-## Next Combined Mode Plan
+## Combined Mode Implementation
 
-Add a new mode that combines mode 2 and mode 1:
+Mode 3 combines mode 2 and mode 1:
 
 1. Buy 22B and spend mastery points until the exhausted-points modal appears.
 2. Press A to close the modal and return to the mastery page.
@@ -59,11 +59,17 @@ Add a new mode that combines mode 2 and mode 1:
 8. Enter EventLab, then Events, then My Favorites.
 9. Start the configured EventLab skill-point farm and hand over to the existing mode 1 loop.
 
-Implementation should keep current mode 1 and mode 2 untouched as much as possible, adding a small orchestration runner and the minimum extra detection states for:
+Implementation notes:
+
+- `combo_runner.py` orchestrates the handoff instead of changing the stable mode 1 and mode 2 loops directly.
+- It stops RB navigation as soon as OCR confirms Creative Hub or My Favorites, so it is not locked to one exact screen layout.
+- It waits for the existing EventLab start-menu detector before handing control to `SmartRunner`.
+- The current combined mode farms EventLab after points are exhausted. A later version can add an automatic return from farming back to the buy-car loop once a concrete "enough points" condition is chosen.
+
+Extra detection states added:
 
 - not-enough-skill-points modal
 - Creative Hub pause tab
 - EventLab menu
 - EventLab Events tab
 - My Favorites tab
-

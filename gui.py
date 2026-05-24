@@ -7,6 +7,7 @@ from tkinter import ttk, scrolledtext, messagebox
 
 from app_logging import LOG_PATH, log_startup_diagnostics, setup_logging
 from buy_car_runner import BuyCarRunner
+from combo_runner import ComboRunner
 import config
 import focus
 from gamepad import Gamepad
@@ -36,6 +37,7 @@ class App:
         self.runner = Runner(on_log=self._log, logger=self.logger, pad_provider=self.get_gamepad)
         self.smart_runner = SmartRunner(on_log=self._log, logger=self.logger, pad_provider=self.get_gamepad)
         self.buy_car_runner = BuyCarRunner(on_log=self._log, logger=self.logger, pad_provider=self.get_gamepad)
+        self.combo_runner = ComboRunner(on_log=self._log, logger=self.logger, pad_provider=self.get_gamepad)
         self.keeper = None
         self.hotkey = GlobalHotkey(on_press=self._enqueue_toggle, on_log=self._log)
 
@@ -61,12 +63,15 @@ class App:
         ttk.Radiobutton(mode_box, text="模式二：买车加点（先买22B）",
                         variable=self.mode_var, value="buy_car",
                         command=self.apply_mode).grid(row=1, column=0, sticky="w")
-        ttk.Radiobutton(mode_box, text="模式三：前台计时（兜底）",
-                        variable=self.mode_var, value="foreground",
+        ttk.Radiobutton(mode_box, text="模式三：买车+刷分组合（实验）",
+                        variable=self.mode_var, value="combo",
                         command=self.apply_mode).grid(row=2, column=0, sticky="w")
-        ttk.Radiobutton(mode_box, text="模式四：后台尝试（实验，不保证）",
-                        variable=self.mode_var, value="background",
+        ttk.Radiobutton(mode_box, text="模式四：前台计时（兜底）",
+                        variable=self.mode_var, value="foreground",
                         command=self.apply_mode).grid(row=3, column=0, sticky="w")
+        ttk.Radiobutton(mode_box, text="模式五：后台尝试（实验，不保证）",
+                        variable=self.mode_var, value="background",
+                        command=self.apply_mode).grid(row=4, column=0, sticky="w")
 
         fields = [
             ("启动倒计时（秒）", self.startup_var),
@@ -204,7 +209,12 @@ class App:
         self.root.after(100, self._tick)
 
     def is_running(self):
-        return self.runner.is_running() or self.smart_runner.is_running() or self.buy_car_runner.is_running()
+        return (
+            self.runner.is_running()
+            or self.smart_runner.is_running()
+            or self.buy_car_runner.is_running()
+            or self.combo_runner.is_running()
+        )
 
     def _num(self, var, default):
         try:
@@ -258,6 +268,14 @@ class App:
                 require_foreground=self.require_foreground_var.get(),
             )
             return
+        if self.mode_var.get() == "combo":
+            self.combo_runner.start(
+                startup_delay=startup,
+                total_seconds=total,
+                auto_focus=self.auto_focus_var.get(),
+                require_foreground=self.require_foreground_var.get(),
+            )
+            return
         self.runner.start(farm_sequence(drive_seconds=drive),
                           startup_delay=startup,
                           total_seconds=total,
@@ -272,6 +290,7 @@ class App:
         self.runner.stop()
         self.smart_runner.stop()
         self.buy_car_runner.stop()
+        self.combo_runner.stop()
         if self.keeper:
             self.keeper.stop()
             self.keeper = None
@@ -322,6 +341,15 @@ class App:
             self.hint_var.set("买车加点：第一段先购买默认斯巴鲁 22B。会按 Menu 打开暂停菜单，"
                               "进入车展购买 22B，买车辆熟练度抽奖精灵后回车展循环；截图只在内存中处理。")
             self._log("已切到【买车加点】模式（买 22B + 熟练度抽奖精灵循环）。")
+        elif self.mode_var.get() == "combo":
+            self.no_activate_var.set(True)
+            self.auto_focus_var.set(True)
+            self.require_foreground_var.set(True)
+            self.keep_var.set(False)
+            self.resume_var.set(False)
+            self.hint_var.set("组合模式：先买 22B 并加点；检测到技术点数不足后，自动退回自由漫游，"
+                              "进创意中心/EventLab/我的收藏，并在开始赛事菜单交给刷技能点模式。")
+            self._log("已切到【买车+刷分组合】模式。")
         elif self.mode_var.get() == "background":
             self.no_activate_var.set(True)
             self.auto_focus_var.set(False)
@@ -344,7 +372,9 @@ class App:
         if self.auto_focus_var.get():
             self.activate_game()
         try:
-            if self.mode_var.get() == "buy_car":
+            if self.mode_var.get() == "combo":
+                detection = self.combo_runner.detect_once()
+            elif self.mode_var.get() == "buy_car":
                 detection = self.buy_car_runner.detect_once()
             else:
                 detection = self.smart_runner.detect_once()
@@ -391,6 +421,7 @@ class App:
         self.runner.stop()
         self.smart_runner.stop()
         self.buy_car_runner.stop()
+        self.combo_runner.stop()
         if self.pad:
             self.pad.neutral()
         if self.keeper:

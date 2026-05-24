@@ -22,6 +22,23 @@ Workspace: `D:\地平线6脚本`
 - 新增一个组合模式：先跑买车加点，遇到“点数不足”后退出到自由漫游，打开暂停菜单，进入创意中心/EventLab/赛事/我的收藏，启动刷技能点 EventLab；刷够一段时间后再回到买车加点循环。
 - 组合模式建议用新的编排 runner 实现，复用 `BuyCarRunner` 和 `SmartRunner` 的检测/输入逻辑，不直接破坏已经验证的模式一、模式二。
 
+## 2026-05-25 Combined Mode Update
+
+已新增 **模式三：买车+刷分组合（实验）**。
+
+当前组合流程：
+
+- 先运行买车加点流程。
+- `BuyCarRunner` 现在会把“技术点数不足/不够购买额外加成”识别为明确的 `points_exhausted` 停止原因。
+- `ComboRunner` 在该停止原因出现后，按 A 关闭弹窗，连续 B 返回到自由漫游，再按 Menu 打开暂停菜单。
+- 组合模式会一边按 RB 一边识别，确认到“创意中心”后停止切 tab，按 A 进入 EventLab。
+- 进入 EventLab 后，按 A 到赛事页，再一边按 RB 一边识别，确认到“我的收藏”后按 A。
+- 只有在现有 `SmartRunner` 能识别到 EventLab 开始赛事菜单时，才把控制权交给刷技能点模式。
+
+尚未完成：
+
+- 从刷技能点阶段自动判断“刷够点数了”并回到买车流程。当前组合模式进入 EventLab 后会继续按模式一刷，直到手动停止或总运行时间到。
+
 Date: 2026-05-24
 Workspace: `D:\地平线6脚本`
 Repository: `https://github.com/wenhefu/forzaHorizonScript.git`

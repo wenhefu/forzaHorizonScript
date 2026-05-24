@@ -24,6 +24,7 @@ from buy_car_detector import (
     STATE_PURCHASE_CONFIRM,
     STATE_SEARCH_DIALOG,
     STATE_SKILL_MASTERY,
+    STATE_SKILL_POINTS_EXHAUSTED,
     STATE_SUBARU_22B_READY,
     STATE_SUBARU_GRID,
     STATE_UPGRADE_MENU,
@@ -44,6 +45,8 @@ class BuyCarRunner:
         self._last_ocr_items = []
         self._thread = None
         self._stop = threading.Event()
+        self.stop_reason = None
+        self.points_exhausted = False
 
     def is_running(self):
         return self._thread is not None and self._thread.is_alive()
@@ -53,6 +56,8 @@ class BuyCarRunner:
             self.logger.info("BuyCarRunner start ignored because it is already running")
             return
         self._stop.clear()
+        self.stop_reason = None
+        self.points_exhausted = False
         self.logger.info(
             "BuyCarRunner starting startup_delay=%.2f total_seconds=%s auto_focus=%s require_foreground=%s",
             startup_delay,
@@ -119,6 +124,7 @@ class BuyCarRunner:
             STATE_VEHICLE_TAB,
             STATE_UPGRADE_MENU,
             STATE_SKILL_MASTERY,
+            STATE_SKILL_POINTS_EXHAUSTED,
         }
 
     def _read_ocr(self, hwnd, frame=None, force=False):
@@ -339,6 +345,13 @@ class BuyCarRunner:
                     if not self._tap(pad, "b", after=1.0):
                         break
                     continue
+
+                if state == STATE_SKILL_POINTS_EXHAUSTED:
+                    pad.neutral()
+                    self.points_exhausted = True
+                    self.stop_reason = "points_exhausted"
+                    self.on_log("车辆熟练度：技术点数不足，买车阶段暂停在不足弹窗。")
+                    break
 
                 if state == STATE_CONFIRM_MODAL:
                     pad.neutral()
@@ -803,7 +816,10 @@ class BuyCarRunner:
         except Exception as exc:
             self.logger.exception("BuyCarRunner crashed")
             self.on_log(f"买车流程运行时出错：{exc}")
+            self.stop_reason = self.stop_reason or "error"
         finally:
+            if self._stop.is_set():
+                self.stop_reason = self.stop_reason or "stopped"
             pad.neutral()
             self.on_log("买车加点模式已停止，手柄保持连接并已回正。")
 
@@ -839,6 +855,7 @@ class BuyCarRunner:
         return self._confirm_wheelspin_mastery()
 
     def _confirm_wheelspin_mastery(self):
+        saw_non_purchase_modal = False
         for attempt in range(1, 3):
             if not self._sleep(0.65):
                 return False
@@ -849,11 +866,31 @@ class BuyCarRunner:
                 self.on_log("车辆熟练度：固定序列已按完，但截图验证失败，先停止，避免错循环。")
                 return False
             text = detection.ocr_text or ""
+            if (
+                detection.state == STATE_SKILL_POINTS_EXHAUSTED
+                or "不够购买额外加成" in text
+                or "技术点数不足" in text
+                or "不足以解锁" in text
+            ):
+                self.points_exhausted = True
+                self.stop_reason = "points_exhausted"
+                self.on_log("车辆熟练度：检测到技术点数不足弹窗。")
+                return False
+            if detection.state == STATE_CONFIRM_MODAL or (
+                detection.scores.get("modal_lime", 0.0) >= 0.05
+                and detection.scores.get("modal_price_yellow", 0.0) < 0.02
+            ):
+                saw_non_purchase_modal = True
             if "抽奖精灵" in text:
                 self.on_log("车辆熟练度：已确认停在“抽奖精灵”。")
                 return True
             preview = text[:90] if text else "无文字"
             self.on_log(f"车辆熟练度：第 {attempt} 次未确认到“抽奖精灵”（OCR：{preview}）。")
+        if saw_non_purchase_modal:
+            self.points_exhausted = True
+            self.stop_reason = "points_exhausted"
+            self.on_log("车辆熟练度：固定序列后看到非购买确认弹窗，按技术点数不足处理。")
+            return False
         self.on_log("车辆熟练度：固定序列按完但没有确认到“抽奖精灵”，先停止，避免带着错误加点继续循环。")
         return False
 
@@ -896,6 +933,7 @@ class BuyCarRunner:
             STATE_VEHICLE_TAB: "车辆页",
             STATE_UPGRADE_MENU: "升级页",
             STATE_SKILL_MASTERY: "车辆熟练度页",
+            STATE_SKILL_POINTS_EXHAUSTED: "技能点不足弹窗",
             STATE_BUY_SELL_MENU: "购买与出售页",
             STATE_BUY_SELL_SHOWROOM_READY: "购买与出售页-车展已选中",
             STATE_AUTOSHOW_GRID: "购买车辆页",
