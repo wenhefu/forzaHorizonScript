@@ -1,5 +1,30 @@
 # Handoff - Forza Horizon 6 Helper
 
+## 2026-05-26 Product Shell Refactor
+
+本轮目标是先把“产品版瘦身”的地基打稳，避免只是把控件隐藏、但旧功能仍通过零散变量暗中影响运行。
+
+已完成：
+
+- 新增 `modes.py`：所有运行模式集中登记，包含模式 id、显示名、runner 类型、默认高级选项、提示文案、是否普通界面可见。
+- 新增 `settings.py`：GUI 启动一次运行时会生成不可变 `RuntimeSettings` 快照，runner 不再直接从 Tk 变量里读动态状态。
+- 新增 `app_controller.py`：集中管理虚拟手柄、`Runner`/`SmartRunner`/`BuyCarRunner`/`ComboRunner` 生命周期、开始/停止、手动按键、识别入口和旧前台计时的焦点恢复回调。
+- `gui.py` 现在只负责窗口渲染、输入框、按钮、日志展示和把当前表单转成 `RuntimeSettings`。
+- 普通界面默认只展示模式一/二/三；模式四/五、按 A/B、识别一次和高级复选框放入“显示高级/调试模式”，默认折叠但未删除。
+- `README.md` 已同步新的产品/调试分层和代码结构说明。
+
+验证：
+
+- `.venv\Scripts\python.exe -m compileall -q .` 通过。
+- `.venv\Scripts\python.exe -m unittest discover -s tests` 通过。
+- 轻量模块自检通过：`product_modes() == ['skill_points', 'buy_car', 'combo']`，`debug_modes() == ['foreground', 'background']`，`RuntimeSettings.total_seconds` 正常换算。
+
+后续建议：
+
+1. 再做一层“状态事件”输出，让 runner 发 `stage/message/severity`，GUI 显示稳定的状态卡，不再让普通用户读日志判断进度。
+2. 给 `buy_car_detector.py` 和 `screen_detector.py` 加截图/识别回放测试，先覆盖这次现场踩过的 EventLab 我的车辆、我的收藏/历史记录 tab、22B 选车。
+3. 打包前补 `packaging/` 目录、PyInstaller spec、版本号、图标、ViGEmBus 检测/安装提示。
+
 ## 2026-05-26 Mode Three Field Validation
 
 当前最新状态：
