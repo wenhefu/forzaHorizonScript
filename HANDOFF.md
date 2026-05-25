@@ -1,5 +1,30 @@
 # Handoff - Forza Horizon 6 Helper
 
+## 2026-05-26 Wide Prep UI
+
+本轮目标：把窗口从偏正方形调整成横向长方形，并把用户给的三张准备截图放进产品 UI，而不是只写一段说明。
+
+已完成：
+
+- `gui.py` 改成两列布局：左侧保留主操作区，右侧新增 **开始前准备** 卡片。
+- 右侧三步准备清单使用真实截图缩略图，点击缩略图可弹出大图预览。
+- 三步文案已按用户原意优化并完整放入界面：
+  1. 把加满点数的 `1998 Subaru Impreza 22B-STI` 加入“车库 -> 我的车辆”的收藏，并把当前驾驶车辆设为这台车。
+  2. 把刷技能点赛事放进“创意中心 -> 游玩赛事 -> 我的收藏”的第一个位置，推荐共享代码 `890 169 683`。
+  3. 开始前停留在暂停菜单的首个分页，也就是上方分页从“剧情 / 车辆 / 我的地平线 / 在线 / 创意中心 / 商店”开始的页面。
+- 三张图片已复制到 `assets/prep/`：
+  - `vehicle_22b.png`
+  - `eventlab_favorite.png`
+  - `pause_home.png`
+- `build.bat` 已加入 `--add-data "assets;assets"`，打包 exe 时会带上引导截图。
+- `README.md` 已同步开始前准备说明。
+
+验证：
+
+- `.venv\Scripts\python.exe -m compileall -q .` 通过。
+- `.venv\Scripts\python.exe -m unittest discover -s tests` 通过。
+- 本地生成 GUI 预览图 `logs/gui-preview-wide.png`，窗口约 `1253 x 998`，横向布局和右侧准备清单显示正常。
+
 ## 2026-05-26 Product UI Pass
 
 本轮目标：把 GUI 从“开发工具面板”调整成更接近 Codex/Claude 桌面版的安静产品感，同时使用地平线暂停菜单近似的深绿色背景。

@@ -1,8 +1,12 @@
 """Tk GUI for the FH6 helper. Package to .exe with build.bat on Windows."""
 import os
 import queue
+import sys
 import tkinter as tk
+from pathlib import Path
 from tkinter import messagebox, scrolledtext, ttk
+
+from PIL import Image, ImageTk
 
 from app_controller import AppController
 from app_logging import LOG_PATH, log_startup_diagnostics, setup_logging
@@ -37,6 +41,42 @@ FONT_SECTION = ("Microsoft YaHei UI", 10, "bold")
 FONT_SMALL = ("Microsoft YaHei UI", 8)
 FONT_MONO = ("Consolas", 9)
 
+PREP_STEPS = [
+    {
+        "number": "01",
+        "title": "车辆准备",
+        "image": "assets/prep/vehicle_22b.png",
+        "text": (
+            "请先把加满点数的 1998 Subaru Impreza 22B-STI 加入“车库 -> 我的车辆”的收藏，"
+            "并把当前驾驶车辆设为这台车。模式二和模式三都会围绕这台 22B 运行。"
+        ),
+    },
+    {
+        "number": "02",
+        "title": "EventLab 收藏",
+        "image": "assets/prep/eventlab_favorite.png",
+        "text": (
+            "要刷技能点，请务必把刷分图放进“创意中心 -> 游玩赛事 -> 我的收藏”的第一个位置。"
+            "当前推荐共享代码：890 169 683。"
+        ),
+        "badge": "890 169 683",
+    },
+    {
+        "number": "03",
+        "title": "起始页面",
+        "image": "assets/prep/pause_home.png",
+        "text": (
+            "开始流程前，请务必停留在暂停菜单的首个分页，如图所示。"
+            "上方分页应从“剧情 / 车辆 / 我的地平线 / 在线 / 创意中心 / 商店”这一排开始。"
+        ),
+    },
+]
+
+
+def resource_path(relative_path):
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    return base / relative_path
+
 
 class App:
     def __init__(self, root):
@@ -68,15 +108,24 @@ class App:
         self.show_debug_var = tk.BooleanVar(value=False)
         self.hint_var = tk.StringVar()
 
+        self.image_refs = []
+        self.full_image_refs = []
+        self.prep_vars = []
+
         shell = tk.Frame(root, bg=COLORS["bg"], padx=14, pady=14)
         shell.grid(row=0, column=0, sticky="nsew")
-        shell.columnconfigure(0, minsize=330)
-        shell.columnconfigure(1, minsize=330)
+        shell.columnconfigure(0, minsize=740)
+        shell.columnconfigure(1, minsize=390)
 
         self._build_header(shell).grid(row=0, column=0, columnspan=2, sticky="we", pady=(0, 8))
 
-        mode_card = self._card(shell, "运行模式", "普通用户只需要前三个模式")
-        mode_card.grid(row=1, column=0, sticky="nsew", padx=(0, 7), pady=(0, 8))
+        left = tk.Frame(shell, bg=COLORS["bg"])
+        left.grid(row=1, column=0, sticky="nsew", padx=(0, 8))
+        left.columnconfigure(0, minsize=360)
+        left.columnconfigure(1, minsize=360)
+
+        mode_card = self._card(left, "运行模式", "普通用户只需要前三个模式")
+        mode_card.grid(row=0, column=0, sticky="nsew", padx=(0, 7), pady=(0, 8))
         for row, mode in enumerate(product_modes()):
             self._add_mode_button(mode_card.body, mode, row)
 
@@ -94,16 +143,16 @@ class App:
         for row, mode in enumerate(debug_modes()):
             self._add_mode_button(self.debug_mode_frame, mode, row)
 
-        settings_card = self._card(shell, "运行参数", "保持默认即可开始")
-        settings_card.grid(row=1, column=1, sticky="nsew", padx=(7, 0), pady=(0, 8))
+        settings_card = self._card(left, "运行参数", "保持默认即可开始")
+        settings_card.grid(row=0, column=1, sticky="nsew", padx=(7, 0), pady=(0, 8))
         self._build_settings(settings_card.body)
 
-        actions_card = self._card(shell, "控制", "推荐保持游戏前台后启动")
-        actions_card.grid(row=2, column=0, columnspan=2, sticky="we", pady=(0, 8))
+        actions_card = self._card(left, "控制", "推荐保持游戏前台后启动")
+        actions_card.grid(row=1, column=0, columnspan=2, sticky="we", pady=(0, 8))
         self._build_actions(actions_card.body)
 
-        hint_card = self._card(shell, "当前模式提示", None)
-        hint_card.grid(row=3, column=0, columnspan=2, sticky="we", pady=(0, 8))
+        hint_card = self._card(left, "当前模式提示", None)
+        hint_card.grid(row=2, column=0, columnspan=2, sticky="we", pady=(0, 8))
         tk.Label(
             hint_card.body,
             textvariable=self.hint_var,
@@ -112,22 +161,22 @@ class App:
             font=FONT,
             justify="left",
             anchor="w",
-            wraplength=660,
+            wraplength=690,
         ).grid(row=0, column=0, sticky="we")
 
-        self.debug_buttons_frame = self._card(shell, "调试工具", "需要人工救场时再打开")
-        self.debug_buttons_frame.grid(row=4, column=0, columnspan=2, sticky="we", pady=(0, 8))
+        self.debug_buttons_frame = self._card(left, "调试工具", "需要人工救场时再打开")
+        self.debug_buttons_frame.grid(row=3, column=0, columnspan=2, sticky="we", pady=(0, 8))
         self._build_debug_buttons(self.debug_buttons_frame.body)
 
-        self.advanced_frame = self._card(shell, "高级选项", "切换模式会自动设置，也可以手动覆盖")
-        self.advanced_frame.grid(row=5, column=0, columnspan=2, sticky="we", pady=(0, 8))
+        self.advanced_frame = self._card(left, "高级选项", "切换模式会自动设置，也可以手动覆盖")
+        self.advanced_frame.grid(row=4, column=0, columnspan=2, sticky="we", pady=(0, 8))
         self._build_advanced(self.advanced_frame.body)
 
-        log_card = self._card(shell, "运行日志", "详细过程会写入 logs/forza6helper.log")
-        log_card.grid(row=6, column=0, columnspan=2, sticky="we")
+        log_card = self._card(left, "运行日志", "详细过程会写入 logs/forza6helper.log")
+        log_card.grid(row=5, column=0, columnspan=2, sticky="we")
         self.log = scrolledtext.ScrolledText(
             log_card.body,
-            width=84,
+            width=72,
             height=5,
             state="disabled",
             font=FONT_MONO,
@@ -140,6 +189,10 @@ class App:
             pady=8,
         )
         self.log.grid(row=0, column=0, sticky="we")
+
+        prep_card = self._card(shell, "开始前准备", "这三件事做好后再点开始")
+        prep_card.grid(row=1, column=1, sticky="nsew", padx=(8, 0))
+        self._build_prep(prep_card.body)
 
         self._log(f"日志文件：{LOG_PATH}")
         self.hotkey.start()
@@ -343,6 +396,157 @@ class App:
         self.log_btn.grid(row=0, column=2, sticky="we", padx=8)
         self.focus_btn = ttk.Button(parent, text="切回游戏", command=self.activate_game, style="App.TButton")
         self.focus_btn.grid(row=0, column=3, sticky="we", padx=(8, 0))
+
+    def _build_prep(self, parent):
+        parent.columnconfigure(0, weight=1)
+        for row, step in enumerate(PREP_STEPS):
+            self._prep_item(parent, row, step)
+
+    def _prep_item(self, parent, row, step):
+        item = tk.Frame(
+            parent,
+            bg=COLORS["surface_soft"],
+            padx=8,
+            pady=8,
+            highlightbackground=COLORS["border"],
+            highlightthickness=1,
+        )
+        item.grid(row=row, column=0, sticky="we", pady=(0, 8 if row < len(PREP_STEPS) - 1 else 0))
+        item.columnconfigure(1, weight=1)
+
+        thumb = self._load_thumbnail(step["image"], (148, 86))
+        if thumb:
+            image_label = tk.Label(item, image=thumb, bg=COLORS["surface_soft"], cursor="hand2")
+            image_label.image = thumb
+            image_label.grid(row=0, column=0, rowspan=3, sticky="nw", padx=(0, 10))
+            image_label.bind("<Button-1>", lambda _event, item=step: self._show_image(item))
+        else:
+            image_label = tk.Label(
+                item,
+                text="截图",
+                width=18,
+                height=5,
+                bg=COLORS["bg_deep"],
+                fg="#ffffff",
+                font=FONT_SMALL,
+            )
+            image_label.grid(row=0, column=0, rowspan=3, sticky="nw", padx=(0, 10))
+
+        title = tk.Frame(item, bg=COLORS["surface_soft"])
+        title.grid(row=0, column=1, sticky="we")
+        tk.Label(
+            title,
+            text=step["number"],
+            bg=COLORS["accent"],
+            fg="#ffffff",
+            font=("Microsoft YaHei UI", 8, "bold"),
+            padx=6,
+            pady=2,
+        ).grid(row=0, column=0, sticky="w", padx=(0, 6))
+        tk.Label(
+            title,
+            text=step["title"],
+            bg=COLORS["surface_soft"],
+            fg=COLORS["text"],
+            font=FONT_SECTION,
+            anchor="w",
+        ).grid(row=0, column=1, sticky="w")
+
+        tk.Label(
+            item,
+            text=step["text"],
+            bg=COLORS["surface_soft"],
+            fg=COLORS["muted"],
+            font=FONT_SMALL,
+            justify="left",
+            anchor="w",
+            wraplength=205,
+        ).grid(row=1, column=1, sticky="we", pady=(5, 4))
+
+        footer = tk.Frame(item, bg=COLORS["surface_soft"])
+        footer.grid(row=2, column=1, sticky="we")
+        done_var = tk.BooleanVar(value=False)
+        self.prep_vars.append(done_var)
+        tk.Checkbutton(
+            footer,
+            text="已完成",
+            variable=done_var,
+            bg=COLORS["surface_soft"],
+            fg=COLORS["text"],
+            activebackground=COLORS["surface_soft"],
+            activeforeground=COLORS["accent"],
+            selectcolor="#ffffff",
+            font=FONT_SMALL,
+            bd=0,
+            highlightthickness=0,
+        ).grid(row=0, column=0, sticky="w")
+        if step.get("badge"):
+            tk.Label(
+                footer,
+                text=step["badge"],
+                bg=COLORS["bg_deep"],
+                fg=COLORS["lime"],
+                font=("Consolas", 9, "bold"),
+                padx=6,
+                pady=2,
+            ).grid(row=0, column=1, sticky="e", padx=(12, 0))
+
+    def _load_thumbnail(self, relative_path, size):
+        path = resource_path(relative_path)
+        try:
+            image = Image.open(path)
+            image = image.convert("RGB")
+            source_ratio = image.width / image.height
+            target_ratio = size[0] / size[1]
+            if source_ratio > target_ratio:
+                crop_width = int(image.height * target_ratio)
+                left = (image.width - crop_width) // 2
+                image = image.crop((left, 0, left + crop_width, image.height))
+            else:
+                crop_height = int(image.width / target_ratio)
+                top = (image.height - crop_height) // 2
+                image = image.crop((0, top, image.width, top + crop_height))
+            image = image.resize(size, Image.LANCZOS)
+            photo = ImageTk.PhotoImage(image)
+            self.image_refs.append(photo)
+            return photo
+        except Exception as exc:
+            self.logger.warning("Unable to load prep image %s: %s", path, exc)
+            return None
+
+    def _show_image(self, step):
+        path = resource_path(step["image"])
+        try:
+            image = Image.open(path)
+        except Exception as exc:
+            self._log(f"无法打开准备截图：{exc}")
+            return
+
+        max_size = (980, 620)
+        image.thumbnail(max_size, Image.LANCZOS)
+        photo = ImageTk.PhotoImage(image)
+
+        popup = tk.Toplevel(self.root)
+        popup.title(step["title"])
+        popup.configure(bg=COLORS["bg"])
+        popup.resizable(False, False)
+        popup.transient(self.root)
+        popup.preview_image = photo
+
+        frame = tk.Frame(popup, bg=COLORS["bg"], padx=14, pady=14)
+        frame.grid(row=0, column=0)
+        tk.Label(
+            frame,
+            text=f"{step['number']} {step['title']}",
+            bg=COLORS["bg"],
+            fg="#ffffff",
+            font=FONT_SECTION,
+            anchor="w",
+        ).grid(row=0, column=0, sticky="w", pady=(0, 8))
+        tk.Label(frame, image=photo, bg=COLORS["bg"]).grid(row=1, column=0)
+        ttk.Button(popup, text="关闭", command=popup.destroy, style="App.TButton").grid(
+            row=1, column=0, sticky="e", padx=14, pady=(0, 14)
+        )
 
     def _build_debug_buttons(self, parent):
         for column in range(3):
