@@ -51,9 +51,9 @@ class ComboRunner:
             return
         self._stop.clear()
         self.logger.info(
-            "ComboRunner starting startup_delay=%.2f total_seconds=%s auto_focus=%s require_foreground=%s",
+            "ComboRunner starting startup_delay=%.2f farm_seconds=%s auto_focus=%s require_foreground=%s",
             startup_delay,
-            "unlimited" if total_seconds is None else f"{total_seconds:.2f}",
+            "config-default" if total_seconds is None else f"{total_seconds:.2f}",
             auto_focus,
             require_foreground,
         )
@@ -82,12 +82,6 @@ class ComboRunner:
             time.sleep(min(0.05, max(0.0, end - time.monotonic())))
         return not self._stop.is_set()
 
-    def _remaining(self, started, total_seconds):
-        if total_seconds is None:
-            return None
-        remaining = total_seconds - (time.monotonic() - started)
-        return max(0.0, remaining)
-
     def _tap(self, pad, button, hold=0.15, after=0.75):
         self.buy_runner._invalidate_ocr()
         pad.tap(button, hold=hold)
@@ -112,7 +106,7 @@ class ComboRunner:
             )
         return self._sleep(1.0)
 
-    def _run(self, startup_delay, total_seconds, auto_focus, require_foreground):
+    def _run(self, startup_delay, farm_seconds_override, auto_focus, require_foreground):
         try:
             pad = self.pad_provider()
         except Exception as exc:
@@ -120,7 +114,6 @@ class ComboRunner:
             self.on_log(f"无法启动虚拟手柄：{exc}")
             return
 
-        started = time.monotonic()
         cycle = 0
         try:
             if startup_delay > 0:
@@ -132,10 +125,6 @@ class ComboRunner:
 
             while not self._stop.is_set():
                 cycle += 1
-                remaining = self._remaining(started, total_seconds)
-                if remaining is not None and remaining <= 0:
-                    self.on_log("组合模式：总运行时间已到，停止循环。")
-                    return
 
                 eventlab_ready = self._try_resume_eventlab_prestart(
                     pad,
@@ -144,13 +133,8 @@ class ComboRunner:
                 )
                 if not eventlab_ready:
                     self.on_log(f"组合模式：第 {cycle} 轮买车加点阶段开始，直到检测到技术点数不足。")
-                    if not self._run_buy_phase(remaining, auto_focus, require_foreground):
+                    if not self._run_buy_phase(auto_focus, require_foreground):
                         return  # stop reason wasn't points_exhausted, or user stopped
-
-                    remaining = self._remaining(started, total_seconds)
-                    if remaining is not None and remaining <= 0:
-                        self.on_log("组合模式：买车阶段完成时总时间已到，不再进入 EventLab。")
-                        return
 
                     if not self._navigate_to_eventlab_prestart(pad, auto_focus, require_foreground):
                         self.on_log("组合模式：没有稳定进入 EventLab 开始赛事菜单，已停止，避免乱按。")
@@ -158,23 +142,14 @@ class ComboRunner:
                 else:
                     self.on_log("组合模式：已从当前 EventLab 页面续接到开始赛事菜单。")
 
-                remaining = self._remaining(started, total_seconds)
-                if remaining is not None and remaining <= 0:
-                    self.on_log("组合模式：进入 EventLab 时总时间已到，不再启动刷分。")
-                    return
-
-                farm_seconds = float(getattr(config, "COMBO_EVENTLAB_FARM_SECONDS", 90 * 60))
-                if remaining is not None:
-                    farm_seconds = min(farm_seconds, remaining)
+                if farm_seconds_override is None or farm_seconds_override <= 0:
+                    farm_seconds = float(getattr(config, "COMBO_EVENTLAB_FARM_SECONDS", 90 * 60))
+                else:
+                    farm_seconds = float(farm_seconds_override)
                 if not self._run_farm_phase(farm_seconds, auto_focus, require_foreground):
                     return  # user stopped during farming
 
                 if self._stop.is_set():
-                    return
-
-                remaining = self._remaining(started, total_seconds)
-                if remaining is not None and remaining <= 0:
-                    self.on_log("组合模式：刷分阶段结束时总时间已到，不再回到买车阶段。")
                     return
 
                 # EventLab leg done. Get back to the pause menu so the next
@@ -194,10 +169,10 @@ class ComboRunner:
             pad.neutral()
             self.on_log("组合模式已停止，手柄保持连接并已回正。")
 
-    def _run_buy_phase(self, remaining, auto_focus, require_foreground):
+    def _run_buy_phase(self, auto_focus, require_foreground):
         self.buy_runner.start(
             startup_delay=0.0,
-            total_seconds=remaining,
+            total_seconds=None,
             auto_focus=auto_focus,
             require_foreground=require_foreground,
         )
@@ -208,7 +183,7 @@ class ComboRunner:
             return False
         if self.buy_runner.stop_reason != "points_exhausted":
             self.on_log(
-                f"组合模式：买车阶段停止原因={self.buy_runner.stop_reason or '总时间到/未知'}，先不继续切 EventLab。"
+                f"组合模式：买车阶段停止原因={self.buy_runner.stop_reason or '未知'}，先不继续切 EventLab。"
             )
             return False
         self.on_log("组合模式：确认是技术点数不足，开始退回自由漫游并打开 EventLab。")

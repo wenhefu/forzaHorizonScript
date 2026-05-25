@@ -103,7 +103,7 @@ class AppController:
         if mode.runner_kind == RUNNER_BUY_CAR:
             self.buy_car_runner.start(
                 startup_delay=settings.startup_delay,
-                total_seconds=settings.total_seconds,
+                total_seconds=None,
                 auto_focus=settings.auto_focus,
                 require_foreground=settings.require_foreground,
             )

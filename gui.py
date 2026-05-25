@@ -14,7 +14,7 @@ from app_logging import LOG_PATH, log_startup_diagnostics, setup_logging
 import config
 import focus
 from hotkeys import GlobalHotkey
-from modes import DEFAULT_MODE_ID, MODE_SKILL_POINTS, debug_modes, get_mode, product_modes
+from modes import DEFAULT_MODE_ID, MODE_BUY_CAR, MODE_COMBO, MODE_SKILL_POINTS, debug_modes, get_mode, product_modes
 from settings import RuntimeSettings
 from single_instance import SingleInstance
 
@@ -360,7 +360,8 @@ class App:
         self._field(parent, 0, "启动倒计时", self.startup_var, "秒")
         self.drive_widgets = self._field(parent, 1, "每圈前进时间", self.drive_var, "秒")
         self.drive_label, self.drive_entry, self.drive_unit = self.drive_widgets
-        self._field(parent, 2, "刷图循环总时间", self.total_var, "分钟，推荐 60；0=一直跑")
+        self.total_widgets = self._field(parent, 2, "刷图运行时间", self.total_var, "分钟，推荐 60；0=一直跑")
+        self.total_label, self.total_entry, self.total_unit = self.total_widgets
 
     def _field(self, parent, row, label, var, unit):
         text = tk.Label(
@@ -650,11 +651,13 @@ class App:
         return value
 
     def _settings_from_ui(self, source):
+        mode = get_mode(self.mode_var.get())
+        total_label = "每轮刷图时间" if mode.mode_id == MODE_COMBO else "刷图运行时间"
         return RuntimeSettings(
             mode_id=self.mode_var.get(),
             startup_delay=self._read_number("启动倒计时", self.startup_var, config.STARTUP_DELAY),
             drive_seconds=self._read_number("每圈前进时间", self.drive_var, config.DRIVE_SECONDS),
-            total_minutes=self._read_number("刷图循环总时间", self.total_var, 0.0),
+            total_minutes=self._read_number(total_label, self.total_var, 0.0),
             keep_active=self.keep_var.get(),
             auto_focus=self.auto_focus_var.get(),
             no_activate=self.no_activate_var.get(),
@@ -716,12 +719,32 @@ class App:
 
     def refresh_field_visibility(self):
         mode = get_mode(self.mode_var.get())
+        if mode.mode_id == MODE_COMBO:
+            self.total_label.config(text="每轮刷图时间")
+            self.total_unit.config(text="推荐 60；0=默认 90；买车不计时")
+        elif mode.mode_id == MODE_BUY_CAR:
+            self.total_label.config(text="刷图运行时间")
+            self.total_unit.config(text="买车加点不计入刷图时间")
+        elif mode.mode_id == MODE_SKILL_POINTS:
+            self.total_label.config(text="刷图运行时间")
+            self.total_unit.config(text="分钟，推荐 60；0=一直跑")
+        else:
+            self.total_label.config(text="总运行时间")
+            self.total_unit.config(text="分钟，0=一直跑")
+
         if mode.uses_drive_seconds or self.show_debug_var.get():
             for widget in self.drive_widgets:
                 widget.grid()
         else:
             for widget in self.drive_widgets:
                 widget.grid_remove()
+
+        if mode.mode_id == MODE_BUY_CAR and not self.show_debug_var.get():
+            for widget in self.total_widgets:
+                widget.grid_remove()
+        else:
+            for widget in self.total_widgets:
+                widget.grid()
 
     def detect_once(self):
         if self.auto_focus_var.get():
