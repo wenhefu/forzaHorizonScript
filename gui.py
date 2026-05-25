@@ -14,12 +14,39 @@ from settings import RuntimeSettings
 from single_instance import SingleInstance
 
 
+COLORS = {
+    "bg": "#0f463f",
+    "bg_deep": "#0a302c",
+    "surface": "#f7faf7",
+    "surface_soft": "#edf5ef",
+    "border": "#d5e0d8",
+    "text": "#16211e",
+    "muted": "#60716a",
+    "accent": "#116b5b",
+    "accent_hover": "#0d5b4d",
+    "accent_soft": "#ddf4e5",
+    "lime": "#b8ff2c",
+    "danger": "#a23b3b",
+    "log_bg": "#071f1c",
+    "log_text": "#d8e8df",
+}
+
+FONT = ("Microsoft YaHei UI", 9)
+FONT_TITLE = ("Microsoft YaHei UI", 16, "bold")
+FONT_SECTION = ("Microsoft YaHei UI", 10, "bold")
+FONT_SMALL = ("Microsoft YaHei UI", 8)
+FONT_MONO = ("Consolas", 9)
+
+
 class App:
     def __init__(self, root):
         self.root = root
         root.title("地平线6 刷分助手")
         root.resizable(False, False)
+        root.configure(bg=COLORS["bg"])
         root.protocol("WM_DELETE_WINDOW", self.on_close)
+
+        self._configure_styles()
 
         self.log_q = queue.Queue()
         self.command_q = queue.Queue()
@@ -41,124 +68,308 @@ class App:
         self.show_debug_var = tk.BooleanVar(value=False)
         self.hint_var = tk.StringVar()
 
-        frm = ttk.Frame(root, padding=12)
-        frm.grid(row=0, column=0)
+        shell = tk.Frame(root, bg=COLORS["bg"], padx=14, pady=14)
+        shell.grid(row=0, column=0, sticky="nsew")
+        shell.columnconfigure(0, minsize=330)
+        shell.columnconfigure(1, minsize=330)
 
-        mode_box = ttk.LabelFrame(frm, text="运行模式", padding=6)
-        mode_box.grid(row=0, column=0, columnspan=2, sticky="we", pady=(0, 6))
+        self._build_header(shell).grid(row=0, column=0, columnspan=2, sticky="we", pady=(0, 8))
+
+        mode_card = self._card(shell, "运行模式", "普通用户只需要前三个模式")
+        mode_card.grid(row=1, column=0, sticky="nsew", padx=(0, 7), pady=(0, 8))
         for row, mode in enumerate(product_modes()):
-            self._add_mode_button(mode_box, mode, row)
+            self._add_mode_button(mode_card.body, mode, row)
 
         debug_row = len(product_modes())
         ttk.Checkbutton(
-            mode_box,
+            mode_card.body,
             text="显示高级/调试模式",
             variable=self.show_debug_var,
             command=self.refresh_debug_visibility,
-        ).grid(row=debug_row, column=0, sticky="w", pady=(4, 0))
+            style="App.TCheckbutton",
+        ).grid(row=debug_row, column=0, sticky="w", pady=(8, 0))
 
-        self.debug_mode_frame = ttk.Frame(mode_box)
-        self.debug_mode_frame.grid(row=debug_row + 1, column=0, sticky="we")
+        self.debug_mode_frame = tk.Frame(mode_card.body, bg=COLORS["surface"])
+        self.debug_mode_frame.grid(row=debug_row + 1, column=0, sticky="we", pady=(4, 0))
         for row, mode in enumerate(debug_modes()):
             self._add_mode_button(self.debug_mode_frame, mode, row)
 
-        r = 1
-        ttk.Label(frm, text="启动倒计时（秒）").grid(row=r, column=0, sticky="w", pady=3)
-        ttk.Entry(frm, textvariable=self.startup_var, width=10).grid(row=r, column=1, pady=3)
-        r += 1
+        settings_card = self._card(shell, "运行参数", "保持默认即可开始")
+        settings_card.grid(row=1, column=1, sticky="nsew", padx=(7, 0), pady=(0, 8))
+        self._build_settings(settings_card.body)
 
-        self.drive_label = ttk.Label(frm, text="每圈前进时间（秒）")
-        self.drive_entry = ttk.Entry(frm, textvariable=self.drive_var, width=10)
-        self.drive_label.grid(row=r, column=0, sticky="w", pady=3)
-        self.drive_entry.grid(row=r, column=1, pady=3)
-        r += 1
+        actions_card = self._card(shell, "控制", "推荐保持游戏前台后启动")
+        actions_card.grid(row=2, column=0, columnspan=2, sticky="we", pady=(0, 8))
+        self._build_actions(actions_card.body)
 
-        ttk.Label(frm, text="总运行时间（分钟，0=一直跑）").grid(row=r, column=0, sticky="w", pady=3)
-        ttk.Entry(frm, textvariable=self.total_var, width=10).grid(row=r, column=1, pady=3)
-        r += 1
-
-        btns = ttk.Frame(frm)
-        btns.grid(row=r, column=0, columnspan=2, pady=(8, 4))
-        r += 1
-        self.start_btn = ttk.Button(btns, text="开始", command=self.on_start)
-        self.start_btn.grid(row=0, column=0, padx=4)
-        self.stop_btn = ttk.Button(btns, text="停止", command=self.on_stop, state="disabled")
-        self.stop_btn.grid(row=0, column=1, padx=4)
-        self.log_btn = ttk.Button(btns, text="打开日志", command=self.open_log)
-        self.log_btn.grid(row=0, column=2, padx=4)
-        self.focus_btn = ttk.Button(btns, text="切回游戏", command=self.activate_game)
-        self.focus_btn.grid(row=0, column=3, padx=4)
-
-        self.debug_buttons_frame = ttk.Frame(frm)
-        self.debug_buttons_frame.grid(row=r, column=0, columnspan=2, pady=(2, 4))
-        r += 1
-        self.confirm_btn = ttk.Button(
-            self.debug_buttons_frame,
-            text="按A确认",
-            command=lambda: self.tap_button("a"),
-        )
-        self.confirm_btn.grid(row=0, column=0, padx=4)
-        self.back_btn = ttk.Button(
-            self.debug_buttons_frame,
-            text="按B返回",
-            command=lambda: self.tap_button("b"),
-        )
-        self.back_btn.grid(row=0, column=1, padx=4)
-        self.detect_btn = ttk.Button(self.debug_buttons_frame, text="识别一次", command=self.detect_once)
-        self.detect_btn.grid(row=0, column=2, padx=4)
-
-        self.advanced_frame = ttk.Frame(frm)
-        self.advanced_frame.grid(row=r, column=0, columnspan=2, sticky="we")
-        r += 1
-        ttk.Label(
-            self.advanced_frame,
-            text="高级（切换模式会自动设置，可手动覆盖）",
-            foreground="#888",
-        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(4, 0))
-
-        ttk.Checkbutton(
-            self.advanced_frame,
-            text="游戏模式：点击本窗口不抢焦点",
-            variable=self.no_activate_var,
-            command=self.apply_game_mode,
-        ).grid(row=1, column=0, columnspan=2, sticky="w")
-        ttk.Checkbutton(
-            self.advanced_frame,
-            text="开始后自动切回游戏窗口",
-            variable=self.auto_focus_var,
-        ).grid(row=2, column=0, columnspan=2, sticky="w")
-        ttk.Checkbutton(
-            self.advanced_frame,
-            text="只在游戏前台时计时（失焦自动暂停脚本）",
-            variable=self.require_foreground_var,
-        ).grid(row=3, column=0, columnspan=2, sticky="w")
-        ttk.Checkbutton(
-            self.advanced_frame,
-            text="切回后按 A 确认/恢复控制器",
-            variable=self.resume_var,
-        ).grid(row=4, column=0, columnspan=2, sticky="w")
-        ttk.Checkbutton(
-            self.advanced_frame,
-            text="失焦时尝试保持运行（实验性；建议先用无边框窗口）",
-            variable=self.keep_var,
-        ).grid(row=5, column=0, columnspan=2, sticky="w")
-
-        ttk.Label(
-            frm,
+        hint_card = self._card(shell, "当前模式提示", None)
+        hint_card.grid(row=3, column=0, columnspan=2, sticky="we", pady=(0, 8))
+        tk.Label(
+            hint_card.body,
             textvariable=self.hint_var,
-            foreground="#666",
-            wraplength=420,
-        ).grid(row=r, column=0, columnspan=2, sticky="w", pady=(2, 0))
-        r += 1
+            bg=COLORS["surface"],
+            fg=COLORS["muted"],
+            font=FONT,
+            justify="left",
+            anchor="w",
+            wraplength=660,
+        ).grid(row=0, column=0, sticky="we")
 
-        self.log = scrolledtext.ScrolledText(frm, width=56, height=12, state="disabled")
-        self.log.grid(row=r, column=0, columnspan=2, pady=(8, 0))
+        self.debug_buttons_frame = self._card(shell, "调试工具", "需要人工救场时再打开")
+        self.debug_buttons_frame.grid(row=4, column=0, columnspan=2, sticky="we", pady=(0, 8))
+        self._build_debug_buttons(self.debug_buttons_frame.body)
+
+        self.advanced_frame = self._card(shell, "高级选项", "切换模式会自动设置，也可以手动覆盖")
+        self.advanced_frame.grid(row=5, column=0, columnspan=2, sticky="we", pady=(0, 8))
+        self._build_advanced(self.advanced_frame.body)
+
+        log_card = self._card(shell, "运行日志", "详细过程会写入 logs/forza6helper.log")
+        log_card.grid(row=6, column=0, columnspan=2, sticky="we")
+        self.log = scrolledtext.ScrolledText(
+            log_card.body,
+            width=84,
+            height=5,
+            state="disabled",
+            font=FONT_MONO,
+            bg=COLORS["log_bg"],
+            fg=COLORS["log_text"],
+            insertbackground=COLORS["log_text"],
+            relief="flat",
+            bd=0,
+            padx=10,
+            pady=8,
+        )
+        self.log.grid(row=0, column=0, sticky="we")
+
         self._log(f"日志文件：{LOG_PATH}")
         self.hotkey.start()
         self.refresh_debug_visibility()
-        self.root.after(300, self.apply_mode)
+        self.apply_mode()
         self.root.after(500, self.connect_gamepad_async)
         self.root.after(100, self._tick)
+
+    def _configure_styles(self):
+        self.style = ttk.Style(self.root)
+        try:
+            self.style.theme_use("clam")
+        except tk.TclError:
+            pass
+
+        self.style.configure(".", font=FONT)
+        self.style.configure("App.TFrame", background=COLORS["surface"])
+        self.style.configure("App.TEntry", padding=(8, 5), fieldbackground="#ffffff", foreground=COLORS["text"])
+        self.style.configure(
+            "App.TButton",
+            padding=(14, 8),
+            background=COLORS["surface_soft"],
+            foreground=COLORS["text"],
+            bordercolor=COLORS["border"],
+            lightcolor=COLORS["surface_soft"],
+            darkcolor=COLORS["border"],
+            focusthickness=1,
+            focuscolor=COLORS["border"],
+        )
+        self.style.map(
+            "App.TButton",
+            background=[("active", "#e4eee7"), ("disabled", "#e8ece8")],
+            foreground=[("disabled", "#98a39d")],
+        )
+        self.style.configure(
+            "Primary.TButton",
+            padding=(18, 8),
+            background=COLORS["accent"],
+            foreground="#ffffff",
+            bordercolor=COLORS["accent"],
+            lightcolor=COLORS["accent"],
+            darkcolor=COLORS["accent"],
+            focusthickness=1,
+            focuscolor=COLORS["lime"],
+        )
+        self.style.map(
+            "Primary.TButton",
+            background=[("active", COLORS["accent_hover"]), ("disabled", "#94aaa2")],
+            foreground=[("disabled", "#edf4f0")],
+        )
+        self.style.configure(
+            "Mode.TRadiobutton",
+            background=COLORS["surface"],
+            foreground=COLORS["text"],
+            padding=(2, 5),
+            indicatorcolor="#ffffff",
+            indicatormargin=3,
+        )
+        self.style.map(
+            "Mode.TRadiobutton",
+            background=[("active", COLORS["surface"])],
+            foreground=[("active", COLORS["accent"])],
+            indicatorcolor=[("selected", COLORS["accent"]), ("!selected", "#ffffff")],
+        )
+        self.style.configure(
+            "App.TCheckbutton",
+            background=COLORS["surface"],
+            foreground=COLORS["text"],
+            padding=(2, 4),
+            indicatorcolor="#ffffff",
+        )
+        self.style.map(
+            "App.TCheckbutton",
+            background=[("active", COLORS["surface"])],
+            foreground=[("active", COLORS["accent"])],
+            indicatorcolor=[("selected", COLORS["accent"]), ("!selected", "#ffffff")],
+        )
+
+    def _build_header(self, parent):
+        header = tk.Frame(parent, bg=COLORS["bg"], highlightthickness=0)
+        header.columnconfigure(0, weight=1)
+
+        tk.Label(
+            header,
+            text="地平线6 刷分助手",
+            bg=COLORS["bg"],
+            fg="#f5fff9",
+            font=FONT_TITLE,
+            anchor="w",
+        ).grid(row=0, column=0, sticky="w")
+        tk.Label(
+            header,
+            text="虚拟手柄自动刷技能点 / 买车加点 / 组合循环",
+            bg=COLORS["bg"],
+            fg="#c7ddd4",
+            font=FONT,
+            anchor="w",
+        ).grid(row=1, column=0, sticky="w", pady=(2, 10))
+
+        guide = tk.Frame(
+            header,
+            bg=COLORS["bg_deep"],
+            padx=12,
+            pady=9,
+            highlightbackground="#1f655b",
+            highlightthickness=1,
+        )
+        guide.grid(row=2, column=0, sticky="we")
+        guide.columnconfigure(0, weight=1)
+        tk.Label(
+            guide,
+            text="开始前请先把游戏设置为窗口模式",
+            bg=COLORS["bg_deep"],
+            fg="#ffffff",
+            font=FONT_SECTION,
+            anchor="w",
+        ).grid(row=0, column=0, sticky="w")
+        tk.Label(
+            guide,
+            text="设置 -> 视频 -> 亮度 -> 全屏幕：关闭",
+            bg=COLORS["bg_deep"],
+            fg=COLORS["lime"],
+            font=("Microsoft YaHei UI", 9, "bold"),
+            anchor="w",
+        ).grid(row=1, column=0, sticky="w", pady=(4, 0))
+        return header
+
+    def _card(self, parent, title, subtitle=None):
+        outer = tk.Frame(
+            parent,
+            bg=COLORS["surface"],
+            padx=12,
+            pady=9,
+            highlightbackground=COLORS["border"],
+            highlightthickness=1,
+        )
+        outer.columnconfigure(0, weight=1)
+        tk.Label(
+            outer,
+            text=title,
+            bg=COLORS["surface"],
+            fg=COLORS["text"],
+            font=FONT_SECTION,
+            anchor="w",
+        ).grid(row=0, column=0, sticky="we")
+        next_row = 1
+        if subtitle:
+            tk.Label(
+                outer,
+                text=subtitle,
+                bg=COLORS["surface"],
+                fg=COLORS["muted"],
+                font=FONT_SMALL,
+                anchor="w",
+            ).grid(row=1, column=0, sticky="we", pady=(1, 8))
+            next_row = 2
+        body = tk.Frame(outer, bg=COLORS["surface"])
+        body.grid(row=next_row, column=0, sticky="we")
+        body.columnconfigure(0, weight=1)
+        outer.body = body
+        return outer
+
+    def _build_settings(self, parent):
+        parent.columnconfigure(1, weight=1)
+        self._field(parent, 0, "启动倒计时", self.startup_var, "秒")
+        self.drive_widgets = self._field(parent, 1, "每圈前进时间", self.drive_var, "秒")
+        self.drive_label, self.drive_entry, self.drive_unit = self.drive_widgets
+        self._field(parent, 2, "总运行时间", self.total_var, "分钟，0=一直跑")
+
+    def _field(self, parent, row, label, var, unit):
+        text = tk.Label(
+            parent,
+            text=label,
+            bg=COLORS["surface"],
+            fg=COLORS["text"],
+            font=FONT,
+            anchor="w",
+        )
+        text.grid(row=row, column=0, sticky="w", pady=5, padx=(0, 10))
+        entry = ttk.Entry(parent, textvariable=var, width=12, style="App.TEntry")
+        entry.grid(row=row, column=1, sticky="e", pady=5)
+        unit_label = tk.Label(
+            parent,
+            text=unit,
+            bg=COLORS["surface"],
+            fg=COLORS["muted"],
+            font=FONT_SMALL,
+            anchor="w",
+        )
+        unit_label.grid(row=row, column=2, sticky="w", pady=5, padx=(8, 0))
+        return text, entry, unit_label
+
+    def _build_actions(self, parent):
+        for column in range(4):
+            parent.columnconfigure(column, weight=1, uniform="actions")
+        self.start_btn = ttk.Button(parent, text="开始", command=self.on_start, style="Primary.TButton")
+        self.start_btn.grid(row=0, column=0, sticky="we", padx=(0, 8))
+        self.stop_btn = ttk.Button(parent, text="停止", command=self.on_stop, state="disabled", style="App.TButton")
+        self.stop_btn.grid(row=0, column=1, sticky="we", padx=8)
+        self.log_btn = ttk.Button(parent, text="打开日志", command=self.open_log, style="App.TButton")
+        self.log_btn.grid(row=0, column=2, sticky="we", padx=8)
+        self.focus_btn = ttk.Button(parent, text="切回游戏", command=self.activate_game, style="App.TButton")
+        self.focus_btn.grid(row=0, column=3, sticky="we", padx=(8, 0))
+
+    def _build_debug_buttons(self, parent):
+        for column in range(3):
+            parent.columnconfigure(column, weight=1, uniform="debug")
+        self.confirm_btn = ttk.Button(parent, text="按A确认", command=lambda: self.tap_button("a"), style="App.TButton")
+        self.confirm_btn.grid(row=0, column=0, sticky="we", padx=(0, 8))
+        self.back_btn = ttk.Button(parent, text="按B返回", command=lambda: self.tap_button("b"), style="App.TButton")
+        self.back_btn.grid(row=0, column=1, sticky="we", padx=8)
+        self.detect_btn = ttk.Button(parent, text="识别一次", command=self.detect_once, style="App.TButton")
+        self.detect_btn.grid(row=0, column=2, sticky="we", padx=(8, 0))
+
+    def _build_advanced(self, parent):
+        options = [
+            ("游戏模式：点击本窗口不抢焦点", self.no_activate_var, self.apply_game_mode),
+            ("开始后自动切回游戏窗口", self.auto_focus_var, None),
+            ("只在游戏前台时计时（失焦自动暂停脚本）", self.require_foreground_var, None),
+            ("切回后按 A 确认/恢复控制器", self.resume_var, None),
+            ("失焦时尝试保持运行（实验性；建议先用无边框窗口）", self.keep_var, None),
+        ]
+        for row, (text, var, command) in enumerate(options):
+            ttk.Checkbutton(
+                parent,
+                text=text,
+                variable=var,
+                command=command,
+                style="App.TCheckbutton",
+            ).grid(row=row, column=0, sticky="w", pady=1)
 
     def _add_mode_button(self, parent, mode, row):
         ttk.Radiobutton(
@@ -167,6 +378,7 @@ class App:
             variable=self.mode_var,
             value=mode.mode_id,
             command=self.apply_mode,
+            style="Mode.TRadiobutton",
         ).grid(row=row, column=0, sticky="w")
 
     def _log(self, msg):
@@ -286,11 +498,11 @@ class App:
     def refresh_field_visibility(self):
         mode = get_mode(self.mode_var.get())
         if mode.uses_drive_seconds or self.show_debug_var.get():
-            self.drive_label.grid()
-            self.drive_entry.grid()
+            for widget in self.drive_widgets:
+                widget.grid()
         else:
-            self.drive_label.grid_remove()
-            self.drive_entry.grid_remove()
+            for widget in self.drive_widgets:
+                widget.grid_remove()
 
     def detect_once(self):
         if self.auto_focus_var.get():
