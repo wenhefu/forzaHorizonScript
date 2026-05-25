@@ -16,6 +16,11 @@ from buy_car_detector import (
     STATE_CONFIRM_MODAL,
     STATE_CONTROLLER_DISCONNECTED,
     STATE_DESIGN_GRID,
+    STATE_EVENTLAB_FILTER,
+    STATE_EVENTLAB_FAVORITES,
+    STATE_EVENTLAB_MY_CARS,
+    STATE_EVENTLAB_MY_CARS_22B_READY,
+    STATE_EVENTLAB_RACE_TYPE,
     STATE_MANUFACTURER_GRID,
     STATE_MANUFACTURER_SUBARU_READY,
     STATE_PAUSE_CARS,
@@ -944,6 +949,11 @@ class BuyCarRunner:
             STATE_DESIGN_GRID: "推荐设计页",
             STATE_COLOR_SELECT: "出厂颜色页",
             STATE_CAR_PREVIEW: "车辆预览页",
+            STATE_EVENTLAB_FAVORITES: "EventLab 我的收藏",
+            STATE_EVENTLAB_RACE_TYPE: "EventLab 比赛类型",
+            STATE_EVENTLAB_MY_CARS: "EventLab 我的车辆页",
+            STATE_EVENTLAB_MY_CARS_22B_READY: "EventLab 22B 已选中",
+            STATE_EVENTLAB_FILTER: "EventLab 车辆筛选",
             STATE_UNKNOWN: "未知画面",
         }
         return labels.get(state, state)

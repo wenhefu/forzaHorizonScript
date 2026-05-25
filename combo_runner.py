@@ -12,6 +12,10 @@ from buy_car_detector import (
     STATE_EVENTLAB_EVENTS,
     STATE_EVENTLAB_FAVORITES,
     STATE_EVENTLAB_MENU,
+    STATE_EVENTLAB_FILTER,
+    STATE_EVENTLAB_MY_CARS,
+    STATE_EVENTLAB_MY_CARS_22B_READY,
+    STATE_EVENTLAB_RACE_TYPE,
     STATE_PAUSE_MENU,
     STATE_SKILL_POINTS_EXHAUSTED,
 )
@@ -155,10 +159,13 @@ class ComboRunner:
                 self.on_log("组合模式：总运行时间已到，已进入 EventLab 但不再启动刷分。")
                 return
 
-            self.on_log("组合模式：已到 EventLab 开始赛事菜单，交给刷技能点模式继续跑。")
+            farm_seconds = float(getattr(config, "COMBO_EVENTLAB_FARM_SECONDS", 2 * 60 * 60))
+            if remaining is not None:
+                farm_seconds = min(farm_seconds, remaining)
+            self.on_log(f"组合模式：已到 EventLab 开始赛事菜单，交给刷技能点模式继续跑 {farm_seconds / 60:.0f} 分钟。")
             self.smart_runner.start(
                 startup_delay=0.0,
-                total_seconds=remaining,
+                total_seconds=farm_seconds,
                 auto_focus=auto_focus,
                 require_foreground=require_foreground,
             )
@@ -218,7 +225,32 @@ class ComboRunner:
         if not self._move_to_eventlab_favorites(pad, auto_focus, require_foreground):
             return False
 
+        self.on_log("组合模式：收藏赛事页按 A 进入当前收藏的刷分图。")
         if not self._tap(pad, "a", after=2.0):
+            return False
+        if not self._wait_buy_state(
+            "比赛类型弹窗或我的车辆页",
+            {STATE_EVENTLAB_RACE_TYPE, STATE_EVENTLAB_MY_CARS, STATE_EVENTLAB_MY_CARS_22B_READY},
+            timeout=8.0,
+            auto_focus=auto_focus,
+            require_foreground=require_foreground,
+            pad=pad,
+        ):
+            return False
+
+        detection = self._detect_buy(auto_focus, require_foreground)
+        if detection and detection.state == STATE_EVENTLAB_RACE_TYPE:
+            self.on_log("组合模式：比赛类型保持“单人”，按 A。")
+            if not self._tap(pad, "a", after=2.0):
+                return False
+            if not self._wait_buy_state("EventLab 我的车辆页", {STATE_EVENTLAB_MY_CARS, STATE_EVENTLAB_MY_CARS_22B_READY}, timeout=12.0, auto_focus=auto_focus, require_foreground=require_foreground, pad=pad):
+                return False
+        else:
+            self.on_log("组合模式：已经跳过比赛类型，当前在我的车辆页。")
+
+        if not self._apply_favorite_filter(pad, auto_focus, require_foreground):
+            return False
+        if not self._select_eventlab_22b(pad, auto_focus, require_foreground):
             return False
         return self._wait_for_prestart(pad, auto_focus, require_foreground)
 
@@ -262,6 +294,134 @@ class ComboRunner:
             if not self._tap(pad, "rb", after=0.45):
                 return False
         self.on_log("组合模式：未能确认我的收藏，停止在当前页面。")
+        return False
+
+    def _apply_favorite_filter(self, pad, auto_focus, require_foreground):
+        self.on_log("组合模式：我的车辆页按 Y 打开筛选，只保留收藏车辆。")
+        if not self._tap(pad, "y", after=1.0):
+            return False
+        if not self._wait_buy_state("车辆筛选弹窗", {STATE_EVENTLAB_FILTER}, timeout=8.0, auto_focus=auto_focus, require_foreground=require_foreground, pad=pad):
+            return False
+
+        detection = self._detect_buy(auto_focus, require_foreground)
+        if detection is None:
+            return False
+        if detection.scores.get("ocr_eventlab_filter_favorite_checked", 0.0) >= 0.5:
+            self.on_log("组合模式：筛选里的“收藏”已经勾选，直接按 B 返回车辆列表。")
+        else:
+            self.on_log("组合模式：筛选里的“收藏”未勾选，按 A 勾选。")
+            if not self._tap(pad, "a", after=0.8):
+                return False
+            detection = self._detect_buy(auto_focus, require_foreground)
+            if detection and detection.state == STATE_EVENTLAB_FILTER:
+                if detection.scores.get("ocr_eventlab_filter_favorite_checked", 0.0) >= 0.5:
+                    self.on_log("组合模式：已确认“收藏”筛选被勾选。")
+                else:
+                    self.on_log("组合模式：已按 A 切换“收藏”筛选，返回后用车辆页结果继续确认。")
+
+        if not self._tap(pad, "b", after=1.4):
+            return False
+        return self._wait_buy_state(
+            "筛选后的我的车辆页",
+            {STATE_EVENTLAB_MY_CARS, STATE_EVENTLAB_MY_CARS_22B_READY},
+            timeout=10.0,
+            auto_focus=auto_focus,
+            require_foreground=require_foreground,
+            pad=pad,
+        )
+
+    def _select_eventlab_22b(self, pad, auto_focus, require_foreground):
+        self.on_log("组合模式：在我的车辆页用 OCR+高亮定位 22B，确认选中后再按 A。")
+        last_move = None
+        target_missing_after_move = False
+        unknown_selected_count = 0
+
+        for attempt in range(1, 22):
+            detection = self._detect_buy(auto_focus, require_foreground)
+            if detection is None:
+                return False
+
+            if detection.state == STATE_EVENTLAB_MY_CARS_22B_READY:
+                self.on_log("组合模式：我的车辆页已确认 22B 高亮，按 A 选择。")
+                if not self._tap(pad, "a", after=2.0):
+                    return False
+                if self._wait_for_prestart(pad, auto_focus, require_foreground):
+                    return True
+                detection_after = self._detect_buy(auto_focus, require_foreground)
+                if detection_after and detection_after.state == STATE_EVENTLAB_MY_CARS_22B_READY:
+                    self.on_log("组合模式：选择 22B 后仍在车辆页，补按一次 A。")
+                    if not self._tap(pad, "a", after=2.0):
+                        return False
+                    return self._wait_for_prestart(pad, auto_focus, require_foreground)
+                return False
+
+            if detection.state != STATE_EVENTLAB_MY_CARS:
+                if detection.state == STATE_CONTROLLER_DISCONNECTED:
+                    self.on_log("组合模式：选车时遇到控制器弹窗，按 A 恢复。")
+                    if not self._tap(pad, "a", after=1.0):
+                        return False
+                    continue
+                if detection.state == STATE_EVENTLAB_FILTER:
+                    self.on_log("组合模式：仍在筛选弹窗，按 B 回车辆页。")
+                    if not self._tap(pad, "b", after=1.0):
+                        return False
+                    continue
+                self.on_log(f"组合模式：选车时页面状态是 {detection.state}，等待重新识别，不乱按。")
+                if not self._sleep(0.8):
+                    return False
+                continue
+
+            target_col = int(detection.scores.get("ocr_eventlab_22b_target_col", 0.0))
+            selected_col = int(detection.scores.get("ocr_eventlab_selected_col", 0.0))
+            target_seen = detection.scores.get("ocr_eventlab_22b_target_text_seen", 0.0) >= 0.5
+
+            if not target_seen:
+                if last_move and not target_missing_after_move:
+                    rollback = self.buy_runner._opposite_move(last_move)
+                    target_missing_after_move = True
+                    self.on_log(f"组合模式：上一步后 22B 不在页面，回退 {self.buy_runner._move_label(rollback)}。")
+                    if not self._tap(pad, rollback, after=0.8):
+                        return False
+                    continue
+                self.on_log(f"组合模式：我的车辆页暂未看到 22B，按右搜索（第 {attempt} 次）。")
+                last_move = "dpad_right"
+                target_missing_after_move = False
+                if not self._tap(pad, "dpad_right", after=0.8):
+                    return False
+                continue
+
+            target_missing_after_move = False
+            if not selected_col:
+                unknown_selected_count += 1
+                if unknown_selected_count >= 3:
+                    self.on_log("组合模式：看到 22B 但识别不到当前高亮，轻按左/右触发高亮刷新。")
+                    unknown_selected_count = 0
+                    last_move = "dpad_left"
+                    if not self._tap(pad, "dpad_left", after=0.8):
+                        return False
+                else:
+                    self.on_log("组合模式：看到 22B 但未识别当前高亮，等待下一张图，不按方向键。")
+                    if not self._sleep(0.8):
+                        return False
+                continue
+
+            unknown_selected_count = 0
+            delta = target_col - selected_col
+            if delta == 0:
+                self.on_log("组合模式：22B 文本列和高亮列一致，等待下一次双确认。")
+                if not self._sleep(0.7):
+                    return False
+                continue
+
+            button = "dpad_right" if delta > 0 else "dpad_left"
+            last_move = button
+            self.on_log(
+                f"组合模式：22B 在第 {target_col} 张，当前第 {selected_col} 张，移动 {self.buy_runner._move_label(button)} 1 格。"
+            )
+            if not self._tap(pad, button, after=0.8):
+                return False
+
+        self.on_log("组合模式：多次尝试仍未稳定选中 22B，停止在车辆页，避免误进其它车。")
         return False
 
     def _wait_buy_state(self, label, target_states, timeout, auto_focus, require_foreground, pad=None):

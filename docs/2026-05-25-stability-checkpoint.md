@@ -57,13 +57,17 @@ Mode 3 combines mode 2 and mode 1:
 6. Wait 1-2 seconds, then press Menu/Start to open the pause menu.
 7. Navigate to Creative Hub with RB.
 8. Enter EventLab, then Events, then My Favorites.
-9. Start the configured EventLab skill-point farm and hand over to the existing mode 1 loop.
+9. Press A on the favorite EventLab card, then confirm the Single Player race type.
+10. On the My Cars page, open Filter with Y, ensure Favorites is checked, and return to the car list.
+11. Locate the 1998 Subaru Impreza 22B-STI by OCR text plus the current green highlight, then press A only after the 22B card is confirmed selected.
+12. Wait for the EventLab start-event menu, then hand over to the existing mode 1 loop for 2 hours.
 
 Implementation notes:
 
 - `combo_runner.py` orchestrates the handoff instead of changing the stable mode 1 and mode 2 loops directly.
 - It stops RB navigation as soon as OCR confirms Creative Hub or My Favorites, so it is not locked to one exact screen layout.
-- It waits for the existing EventLab start-menu detector before handing control to `SmartRunner`.
+- It now also handles the EventLab race-type modal, My Cars filter modal, and 22B selection page before handing control to `SmartRunner`.
+- The EventLab farming handoff is capped by `COMBO_EVENTLAB_FARM_SECONDS` and currently defaults to 2 hours.
 - The current combined mode farms EventLab after points are exhausted. A later version can add an automatic return from farming back to the buy-car loop once a concrete "enough points" condition is chosen.
 
 Extra detection states added:
@@ -73,3 +77,7 @@ Extra detection states added:
 - EventLab menu
 - EventLab Events tab
 - My Favorites tab
+- EventLab race-type modal
+- EventLab My Cars page
+- EventLab My Cars 22B selected
+- EventLab filter modal

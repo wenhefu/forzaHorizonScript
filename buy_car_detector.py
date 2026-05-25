@@ -29,6 +29,10 @@ STATE_CREATIVE_HUB = "creative_hub"
 STATE_EVENTLAB_MENU = "eventlab_menu"
 STATE_EVENTLAB_EVENTS = "eventlab_events"
 STATE_EVENTLAB_FAVORITES = "eventlab_favorites"
+STATE_EVENTLAB_RACE_TYPE = "eventlab_race_type"
+STATE_EVENTLAB_MY_CARS = "eventlab_my_cars"
+STATE_EVENTLAB_MY_CARS_22B_READY = "eventlab_my_cars_22b_ready"
+STATE_EVENTLAB_FILTER = "eventlab_filter"
 STATE_UNKNOWN = "unknown"
 
 
@@ -377,6 +381,66 @@ class BuyCarScreenDetector:
         scores["ocr_subaru_22b_selected_seen"] = 1.0 if (
             subaru_22b_target_col and selected_target_lime >= 0.025
         ) else 0.0
+        eventlab_my_cars_seen = (
+            has(main_text, ["我的车辆"])
+            and has(mid_text, ["当前车辆", "购买车辆", "筛选", "前往制造商"])
+            and not has(main_text, ["购买与出售"])
+        )
+        eventlab_car_items = [
+            item
+            for item in ocr_items
+            if 0.22 <= item_y(item) <= 0.36
+            and 0.18 <= item_x(item) <= 0.96
+            and not has(
+                self._normalize_text(item.text),
+                ["我的车辆", "购买车辆", "当前车辆", "前往制造商", "筛选", "LB", "RB", "SUBARU"],
+            )
+        ]
+        eventlab_col_step = median_step([item_x(item) for item in eventlab_car_items], 0.17)
+        eventlab_cols = cluster_centers([item_x(item) for item in eventlab_car_items], eventlab_col_step * 0.35)
+        eventlab_22b_target_text_seen = any(
+            (
+                0.18 <= item_x(item) <= 0.96
+                and 0.22 <= item_y(item) <= 0.36
+                and has(self._normalize_text(item.text), ["22B", "2B-STI", "2B-ST1", "IMPREZA22", "MPREZA22"])
+                and has(self._normalize_text(item.text), ["IMPREZA", "MPREZA", "STI", "ST1"])
+            )
+            for item in ocr_items
+        )
+        eventlab_22b_target_col = 0
+        for item in ocr_items:
+            text = self._normalize_text(item.text)
+            if not (
+                0.22 <= item_y(item) <= 0.36
+                and 0.18 <= item_x(item) <= 0.96
+                and has(text, ["22B", "2B-STI", "2B-ST1", "IMPREZA22", "MPREZA22"])
+                and has(text, ["IMPREZA", "MPREZA", "STI", "ST1"])
+            ):
+                continue
+            eventlab_22b_target_col = closest_index(item_x(item), eventlab_cols, eventlab_col_step * 0.70)
+            if eventlab_22b_target_col:
+                break
+        eventlab_selected_col, eventlab_selected_lime = selected_top_card_from_items(eventlab_car_items)
+        eventlab_22b_selected_lime = (
+            eventlab_selected_lime
+            if eventlab_22b_target_col and eventlab_selected_col == eventlab_22b_target_col
+            else 0.0
+        )
+        scores["ocr_eventlab_my_cars_seen"] = 1.0 if eventlab_my_cars_seen else 0.0
+        scores["ocr_eventlab_22b_target_text_seen"] = 1.0 if eventlab_22b_target_text_seen else 0.0
+        scores["ocr_eventlab_22b_target_col"] = float(eventlab_22b_target_col)
+        scores["ocr_eventlab_selected_col"] = float(eventlab_selected_col)
+        scores["eventlab_selected_lime"] = eventlab_selected_lime
+        scores["eventlab_22b_selected_lime"] = eventlab_22b_selected_lime
+        scores["ocr_eventlab_22b_selected_seen"] = 1.0 if (
+            eventlab_22b_target_col and eventlab_selected_col == eventlab_22b_target_col and eventlab_selected_lime >= 0.025
+        ) else 0.0
+        scores["filter_favorite_check_center_white"] = (
+            frame.ratio((0.648, 0.285, 0.663, 0.300), _white, step=1) if frame is not None else 0.0
+        )
+        scores["ocr_eventlab_filter_favorite_checked"] = (
+            1.0 if scores["filter_favorite_check_center_white"] >= 0.10 else 0.0
+        )
         scores["ocr_vehicle_upgrade_seen"] = 1.0 if has(mid_text, ["升级与调校"]) else 0.0
         scores["ocr_upgrade_mastery_seen"] = 1.0 if has(mid_text, ["车辆熟练度"]) else 0.0
         pause_cars_tile_seen = pause_purchase_seen or has(mid_text, ["更换车辆", "购买新车", "二手车"])
@@ -391,6 +455,15 @@ class BuyCarScreenDetector:
 
         if has(all_text, ["不够购买额外加成", "技术点数不足", "不足以解锁", "额外加成"]):
             return updated(STATE_SKILL_POINTS_EXHAUSTED, 0.98)
+
+        if has(main_text, ["选择比赛类型"]) and has(mid_text, ["单人", "合作", "玩家对战"]):
+            return updated(STATE_EVENTLAB_RACE_TYPE, 0.96)
+
+        if has(main_text, ["筛选"]) and has(mid_text, ["收藏", "性能等级", "车辆类型"]):
+            return updated(STATE_EVENTLAB_FILTER, 0.96)
+
+        if has(main_text, ["赛事"]) and has(mid_text, ["我的收藏", "最爱的创作者", "我的历史记录"]):
+            return updated(STATE_EVENTLAB_FAVORITES, 0.92)
 
         if has(main_text, ["搜寻"]) and has(main_text, ["关键词", "创建者", "共享代码", "输入文本"]):
             return updated(STATE_SEARCH_DIALOG, 0.94)
@@ -407,6 +480,11 @@ class BuyCarScreenDetector:
 
         if pause_cars_tile_seen:
             return updated(STATE_PAUSE_CARS, 0.94)
+
+        if eventlab_my_cars_seen:
+            if scores.get("ocr_eventlab_22b_selected_seen", 0.0) >= 0.5:
+                return updated(STATE_EVENTLAB_MY_CARS_22B_READY, 0.94)
+            return updated(STATE_EVENTLAB_MY_CARS, 0.90)
 
         if vehicle_tab_seen:
             return updated(STATE_VEHICLE_TAB, 0.94)

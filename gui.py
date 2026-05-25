@@ -347,8 +347,8 @@ class App:
             self.require_foreground_var.set(True)
             self.keep_var.set(False)
             self.resume_var.set(False)
-            self.hint_var.set("组合模式：先买 22B 并加点；检测到技术点数不足后，自动退回自由漫游，"
-                              "进创意中心/EventLab/我的收藏，并在开始赛事菜单交给刷技能点模式。")
+            self.hint_var.set("组合模式：先买 22B 并加点；点数不足后退回自由漫游，进创意中心/EventLab/我的收藏，"
+                              "选单人、筛选收藏车辆、确认 22B，再交给刷技能点模式跑 2 小时。")
             self._log("已切到【买车+刷分组合】模式。")
         elif self.mode_var.get() == "background":
             self.no_activate_var.set(True)

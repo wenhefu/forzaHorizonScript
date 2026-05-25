@@ -21,6 +21,7 @@ BUY_OCR_ENABLED = True
 BUY_OCR_MIN_INTERVAL_SECONDS = 1.5
 BUY_OCR_MIN_CONFIDENCE = 0.45
 BUY_OCR_LOG_ITEMS = True
+COMBO_EVENTLAB_FARM_SECONDS = 2 * 60 * 60  # after buy+mastery points run out, farm EventLab for 2 hours
 
 # Restart-sequence timing (rarely needs changing):
 MENU_DELAY = 0.6        # pause between menu button presses
