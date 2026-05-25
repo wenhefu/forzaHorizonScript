@@ -1,4 +1,5 @@
 """Tk GUI for the FH6 helper. Package to .exe with build.bat on Windows."""
+import math
 import os
 import queue
 import sys
@@ -142,7 +143,7 @@ class App:
         for row, mode in enumerate(debug_modes()):
             self._add_mode_button(self.debug_mode_frame, mode, row)
 
-        settings_card = self._card(left, "运行参数", "保持默认即可开始")
+        settings_card = self._card(left, "运行参数", "填写后无需保存，点开始时读取")
         settings_card.grid(row=0, column=1, sticky="nsew", padx=(7, 0), pady=(0, 8))
         self._build_settings(settings_card.body)
 
@@ -620,18 +621,40 @@ class App:
     def is_running(self):
         return self.controller.is_running()
 
-    def _num(self, var, default):
+    def _format_number(self, value):
+        if float(value).is_integer():
+            return f"{value:.1f}"
+        return f"{value:.2f}".rstrip("0").rstrip(".")
+
+    def _read_number(self, label, var, default, minimum=0.0):
+        raw = var.get().strip()
         try:
-            return float(var.get())
+            value = float(raw)
+            if not math.isfinite(value):
+                raise ValueError
         except ValueError:
-            return default
+            value = float(default)
+            var.set(self._format_number(value))
+            self._log(f"参数校验：{label} 输入无效，已改为 {self._format_number(value)}。")
+            return value
+
+        if value < minimum:
+            value = float(minimum)
+            var.set(self._format_number(value))
+            self._log(f"参数校验：{label} 不能小于 {self._format_number(minimum)}，已自动修正。")
+            return value
+
+        normalized = self._format_number(value)
+        if raw != normalized:
+            var.set(normalized)
+        return value
 
     def _settings_from_ui(self, source):
         return RuntimeSettings(
             mode_id=self.mode_var.get(),
-            startup_delay=self._num(self.startup_var, config.STARTUP_DELAY),
-            drive_seconds=self._num(self.drive_var, config.DRIVE_SECONDS),
-            total_minutes=self._num(self.total_var, config.TOTAL_MINUTES),
+            startup_delay=self._read_number("启动倒计时", self.startup_var, config.STARTUP_DELAY),
+            drive_seconds=self._read_number("每圈前进时间", self.drive_var, config.DRIVE_SECONDS),
+            total_minutes=self._read_number("刷图循环总时间", self.total_var, 0.0),
             keep_active=self.keep_var.get(),
             auto_focus=self.auto_focus_var.get(),
             no_activate=self.no_activate_var.get(),
