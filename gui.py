@@ -110,19 +110,18 @@ class App:
 
         self.image_refs = []
         self.full_image_refs = []
-        self.prep_vars = []
 
         shell = tk.Frame(root, bg=COLORS["bg"], padx=14, pady=14)
         shell.grid(row=0, column=0, sticky="nsew")
-        shell.columnconfigure(0, minsize=740)
-        shell.columnconfigure(1, minsize=390)
+        shell.columnconfigure(0, minsize=820)
+        shell.columnconfigure(1, minsize=470)
 
         self._build_header(shell).grid(row=0, column=0, columnspan=2, sticky="we", pady=(0, 8))
 
         left = tk.Frame(shell, bg=COLORS["bg"])
         left.grid(row=1, column=0, sticky="nsew", padx=(0, 8))
-        left.columnconfigure(0, minsize=360)
-        left.columnconfigure(1, minsize=360)
+        left.columnconfigure(0, minsize=400)
+        left.columnconfigure(1, minsize=400)
 
         mode_card = self._card(left, "运行模式", "普通用户只需要前三个模式")
         mode_card.grid(row=0, column=0, sticky="nsew", padx=(0, 7), pady=(0, 8))
@@ -161,7 +160,7 @@ class App:
             font=FONT,
             justify="left",
             anchor="w",
-            wraplength=690,
+            wraplength=780,
         ).grid(row=0, column=0, sticky="we")
 
         self.debug_buttons_frame = self._card(left, "调试工具", "需要人工救场时再打开")
@@ -360,7 +359,7 @@ class App:
         self._field(parent, 0, "启动倒计时", self.startup_var, "秒")
         self.drive_widgets = self._field(parent, 1, "每圈前进时间", self.drive_var, "秒")
         self.drive_label, self.drive_entry, self.drive_unit = self.drive_widgets
-        self._field(parent, 2, "总运行时间", self.total_var, "分钟，0=一直跑")
+        self._field(parent, 2, "刷图循环总时间", self.total_var, "分钟，推荐 60；0=一直跑")
 
     def _field(self, parent, row, label, var, unit):
         text = tk.Label(
@@ -414,7 +413,7 @@ class App:
         item.grid(row=row, column=0, sticky="we", pady=(0, 8 if row < len(PREP_STEPS) - 1 else 0))
         item.columnconfigure(1, weight=1)
 
-        thumb = self._load_thumbnail(step["image"], (148, 86))
+        thumb = self._load_thumbnail(step["image"], (176, 96))
         if thumb:
             image_label = tk.Label(item, image=thumb, bg=COLORS["surface_soft"], cursor="hand2")
             image_label.image = thumb
@@ -460,25 +459,18 @@ class App:
             font=FONT_SMALL,
             justify="left",
             anchor="w",
-            wraplength=205,
+            wraplength=255,
         ).grid(row=1, column=1, sticky="we", pady=(5, 4))
 
         footer = tk.Frame(item, bg=COLORS["surface_soft"])
         footer.grid(row=2, column=1, sticky="we")
-        done_var = tk.BooleanVar(value=False)
-        self.prep_vars.append(done_var)
-        tk.Checkbutton(
+        footer.columnconfigure(0, weight=1)
+        tk.Label(
             footer,
-            text="已完成",
-            variable=done_var,
+            text="点击截图可查看大图",
             bg=COLORS["surface_soft"],
-            fg=COLORS["text"],
-            activebackground=COLORS["surface_soft"],
-            activeforeground=COLORS["accent"],
-            selectcolor="#ffffff",
+            fg=COLORS["muted"],
             font=FONT_SMALL,
-            bd=0,
-            highlightthickness=0,
         ).grid(row=0, column=0, sticky="w")
         if step.get("badge"):
             tk.Label(
