@@ -4,6 +4,7 @@ import os
 import queue
 import sys
 import tkinter as tk
+import webbrowser
 from pathlib import Path
 from tkinter import messagebox, scrolledtext, ttk
 
@@ -42,6 +43,7 @@ FONT_TITLE = ("Microsoft YaHei UI", 16, "bold")
 FONT_SECTION = ("Microsoft YaHei UI", 10, "bold")
 FONT_SMALL = ("Microsoft YaHei UI", 8)
 FONT_MONO = ("Consolas", 9)
+PROJECT_URL = "https://github.com/wenhefu/forzaHorizonScript"
 
 PREP_STEPS = [
     {
@@ -277,6 +279,7 @@ class App:
     def _build_header(self, parent):
         header = tk.Frame(parent, bg=COLORS["bg"], highlightthickness=0)
         header.columnconfigure(0, weight=1)
+        header.columnconfigure(1, weight=0)
 
         tk.Label(
             header,
@@ -294,6 +297,12 @@ class App:
             font=FONT,
             anchor="w",
         ).grid(row=1, column=0, sticky="w", pady=(2, 10))
+        ttk.Button(
+            header,
+            text="GitHub / 反馈",
+            command=self.open_project_page,
+            style="App.TButton",
+        ).grid(row=0, column=1, rowspan=2, sticky="ne", padx=(12, 0), pady=(1, 0))
 
         guide = tk.Frame(
             header,
@@ -303,7 +312,7 @@ class App:
             highlightbackground="#1f655b",
             highlightthickness=1,
         )
-        guide.grid(row=2, column=0, sticky="we")
+        guide.grid(row=2, column=0, columnspan=2, sticky="we")
         guide.columnconfigure(0, weight=1)
         tk.Label(
             guide,
@@ -631,6 +640,10 @@ class App:
         open_vigembus_download()
         self._log(f"已打开 ViGEmBus 官方下载页：{VIGEMBUS_INSTALL_URL}")
         self._log("下载安装后建议重启助手；如果系统要求重启电脑，请先重启。")
+
+    def open_project_page(self):
+        webbrowser.open(PROJECT_URL)
+        self._log(f"已打开项目仓库：{PROJECT_URL}")
 
     def tap_button(self, name):
         self.controller.tap_button(name, auto_focus=self.auto_focus_var.get())

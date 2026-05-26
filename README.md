@@ -57,6 +57,10 @@
 - 在 **Windows** 上双击 `build.bat`，生成 `dist\Forza6Helper.exe` 和 `dist\README.txt`。
 - 发给朋友时建议把 exe 和 README 一起打包成 zip。exe 会在启动时检查 ViGEmBus；朋友电脑仍然需要各自装一次驱动。
 
+## 项目地址
+- 程序界面右上角的 **GitHub / 反馈** 会打开项目仓库，用于查看更新、反馈问题或下载说明。
+- 仓库地址：<https://github.com/wenhefu/forzaHorizonScript>
+
 ## 提醒
 - 自动刷分违反 Forza 服务条款，理论上有封号风险，**自行斟酌**。
 - 地平线是常驻在线的共享世界（不是纯单机），在线遥测较严，请知悉风险。

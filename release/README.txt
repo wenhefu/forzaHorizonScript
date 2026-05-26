@@ -1,20 +1,36 @@
-Forza6Helper friend package
+地平线6 刷分助手 - 使用说明
 
-1. First-time driver requirement
-   This helper uses a virtual Xbox controller. Windows needs the ViGEmBus driver once per PC.
-   Download it here:
+项目仓库 / 更新 / 反馈：
+https://github.com/wenhefu/forzaHorizonScript
+
+1. 第一次使用前
+   本助手通过“虚拟 Xbox 手柄”向游戏发送按键，所以每台电脑都需要先安装一次 ViGEmBus 驱动。
+   助手启动后会自动检查驱动；如果没装，点界面顶部的“安装/修复虚拟手柄驱动”。
+
+   官方下载页：
    https://github.com/nefarius/ViGEmBus/releases/latest
 
-2. Install
-   Download the latest ViGEmBus setup exe from the official release page, run it, and approve Windows permission prompts.
-   If Windows asks you to restart, restart before using Forza6Helper.
+2. 游戏设置
+   请先把地平线设置为窗口模式：
+   设置 -> 视频 -> 亮度 -> 全屏幕：关闭
 
-3. Use
-   - Set Forza to windowed mode: Settings -> Video -> Brightness -> Fullscreen: Off.
-   - Open Forza6Helper.exe.
-   - The app will check the virtual controller driver at startup.
-   - Keep the game in the foreground while running.
+3. 开始前准备
+   - 把加满点数的 1998 Subaru Impreza 22B-STI 加入“车库 -> 我的车辆”的收藏，并把当前驾驶车辆设为这台车。
+   - 把刷技能点 EventLab 图放进“创意中心 -> 游玩赛事 -> 我的收藏”的第一个位置。
+     当前推荐共享代码：890 169 683。
+   - 开始流程前，请停留在暂停菜单的首个分页，也就是上方分页从“剧情 / 车辆 / 我的地平线 / 在线 / 创意中心 / 商店”开始的页面。
 
-4. Safety note
-   This app does not modify game files and does not inject into the game process.
-   It only creates a virtual Xbox controller and sends controller input.
+4. 使用方式
+   - 打开 Forza6Helper.exe。
+   - 普通用户只需要模式一、模式二、模式三。
+   - “启动倒计时”是给你切回游戏窗口的时间。
+   - “刷图运行时间 / 每轮刷图时间”推荐填 60 分钟；在模式三里，买车加点阶段不计入这个时间。
+   - 参数不需要保存，点“开始”时会读取当前输入；无效输入会自动修正。
+   - 推荐让游戏保持前台，按 Ctrl+Alt+F8 开始/停止。
+
+5. 安全说明
+   本助手不修改游戏文件，不注入游戏进程，只创建虚拟手柄并发送手柄输入。
+   自动刷分可能违反 Forza 服务条款，理论上有封号风险，请自行斟酌。
+
+6. 日志
+   日志在 logs\forza6helper.log，界面里的“打开日志”可以直接查看。

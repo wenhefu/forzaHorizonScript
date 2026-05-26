@@ -6,6 +6,8 @@
 
 已完成：
 
+- `gui.py` 顶部右侧新增 **GitHub / 反馈** 入口，打开 `https://github.com/wenhefu/forzaHorizonScript`，用于查看更新和问题反馈。
+- `release\README.txt` 改成中文朋友版说明，包含仓库地址、ViGEmBus 一次性安装、窗口模式、开始前准备、模式时间含义、风险说明和日志位置。
 - 新增 `driver_check.py`：启动时用 `sc.exe query ViGEmBus` 检查 ViGEmBus 是否安装并运行。
 - `gui.py` 顶部引导区新增虚拟手柄驱动状态和“安装/修复虚拟手柄驱动”按钮；按钮打开官方 release 页面。
 - `gamepad.py` 的虚拟手柄创建失败提示追加官方安装页，朋友电脑没装驱动时更容易自救。
