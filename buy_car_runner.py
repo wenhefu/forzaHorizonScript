@@ -25,6 +25,7 @@ from buy_car_detector import (
     STATE_MANUFACTURER_SUBARU_READY,
     STATE_PAUSE_CARS,
     STATE_PAUSE_MENU,
+    STATE_POST_RACE_NEXT,
     STATE_POST_PURCHASE_VIEW,
     STATE_PURCHASE_CONFIRM,
     STATE_SEARCH_DIALOG,
@@ -114,6 +115,7 @@ class BuyCarRunner:
             STATE_PURCHASE_CONFIRM,
             STATE_SEARCH_DIALOG,
             STATE_PAUSE_MENU,
+            STATE_POST_RACE_NEXT,
             STATE_PAUSE_CARS,
             STATE_BUY_SELL_MENU,
             STATE_BUY_SELL_SHOWROOM_READY,
@@ -348,6 +350,15 @@ class BuyCarRunner:
                     pad.neutral()
                     self.on_log("搜索/筛选弹窗：按 B 取消，回到上一级页面。")
                     if not self._tap(pad, "b", after=1.0):
+                        break
+                    continue
+
+                if state == STATE_POST_RACE_NEXT:
+                    pad.neutral()
+                    self.on_log("赛后“下一站”页面：按 B 返回自由漫游，再按 Menu 打开暂停菜单。")
+                    if not self._tap(pad, "b", after=2.0):
+                        break
+                    if not self._tap(pad, "start", after=1.5):
                         break
                     continue
 
@@ -977,6 +988,7 @@ class BuyCarRunner:
             STATE_PURCHASE_CONFIRM: "购买确认弹窗",
             STATE_SEARCH_DIALOG: "搜索/筛选弹窗",
             STATE_PAUSE_MENU: "暂停菜单",
+            STATE_POST_RACE_NEXT: "赛后下一站页面",
             STATE_PAUSE_CARS: "暂停菜单-车辆页",
             STATE_POST_PURCHASE_VIEW: "新车展示页",
             STATE_VEHICLE_TAB: "车辆页",

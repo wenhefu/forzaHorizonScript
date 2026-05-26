@@ -4,6 +4,7 @@ import threading
 import time
 
 import vgamepad as vg
+from driver_check import VIGEMBUS_INSTALL_URL
 
 # Friendly names -> XInput button enums, so config.py can use plain strings.
 BUTTONS = {
@@ -35,7 +36,10 @@ class Gamepad:
             self.pad = vg.VX360Gamepad()
         except Exception as e:  # most often: ViGEmBus driver not installed
             self.logger.exception("VX360Gamepad creation failed")
-            raise RuntimeError("创建虚拟手柄失败，请确认已安装 ViGEmBus 驱动。原始错误：" + str(e))
+            raise RuntimeError(
+                "创建虚拟手柄失败，请确认已安装 ViGEmBus 驱动。"
+                f"安装页：{VIGEMBUS_INSTALL_URL}。原始错误：{e}"
+            )
         self.logger.info("VX360Gamepad created; waiting for Windows enumeration")
         time.sleep(1.0)  # let Windows enumerate the virtual device first
         self.neutral()

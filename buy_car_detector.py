@@ -9,6 +9,7 @@ STATE_CONTROLLER_DISCONNECTED = "buy_controller_disconnected"
 STATE_PURCHASE_CONFIRM = "buy_purchase_confirm"
 STATE_SEARCH_DIALOG = "search_dialog"
 STATE_PAUSE_MENU = "buy_pause_menu"
+STATE_POST_RACE_NEXT = "post_race_next"
 STATE_PAUSE_CARS = "buy_pause_cars"
 STATE_BUY_SELL_MENU = "buy_sell_menu"
 STATE_BUY_SELL_SHOWROOM_READY = "buy_sell_showroom_ready"
@@ -608,13 +609,42 @@ class BuyCarScreenDetector:
             # combo navigator keeps pressing RB until it reaches 我的收藏.
             return updated(STATE_EVENTLAB_EVENTS, 0.90)
 
-        if has(mid_text, ["收集簿", "世界地图", "下一站", "欢迎来到", "FESTIVALPLAYLIST"]):
-            return updated(STATE_PAUSE_MENU, 0.92)
-
         if has(main_text, ["购买与出售"]) and has(mid_text, ["车展"]):
             return updated(STATE_BUY_SELL_SHOWROOM_READY, 0.94)
         if has(main_text, ["购买与出售", "拍卖场", "车辆通行证", "票券车辆"]):
             return updated(STATE_BUY_SELL_MENU, 0.88)
+
+        pause_hub_seen = has(
+            all_text,
+            [
+                "收集簿",
+                "世界地图",
+                "欢迎来到",
+                "FESTIVALPLAYLIST",
+                "我的地平线",
+                "退出游戏",
+            ],
+        )
+        next_stop_header_seen = any(
+            has(self._normalize_text(getattr(item, "text", "")), ["下一站"])
+            and item_x(item) <= 0.22
+            and item_y(item) <= 0.16
+            for item in ocr_items
+        )
+        scores["ocr_next_stop_header_seen"] = 1.0 if next_stop_header_seen else 0.0
+        post_race_next_seen = (
+            next_stop_header_seen
+            and not pause_hub_seen
+            and (
+                has(all_text, ["腕带赛事", "DAYTRIP", "HIDE", "SEEK", "STREET", "RACE"])
+                or (scores["ocr_items"] >= 8 and has(bottom_text, ["选择"]) and has(bottom_text, ["返回"]))
+            )
+        )
+        if post_race_next_seen:
+            return updated(STATE_POST_RACE_NEXT, 0.94)
+
+        if pause_hub_seen or has(mid_text, ["下一站"]):
+            return updated(STATE_PAUSE_MENU, 0.92)
 
         if autoshow_grid_seen:
             return updated(STATE_AUTOSHOW_GRID, max(0.92, detection.confidence))

@@ -13,6 +13,7 @@ STATE_RESULTS = "results"
 STATE_CONFIRM_RESTART = "confirm_restart"
 STATE_CONTROLLER_DISCONNECTED = "controller_disconnected"
 STATE_PAUSE_MENU = "pause_menu"
+STATE_POST_RACE_NEXT = "post_race_next"
 STATE_UNKNOWN = "unknown"
 
 
@@ -71,6 +72,10 @@ class ForzaScreenDetector:
             "pause_left_lime": frame.ratio((0.15, 0.35, 0.27, 0.55), _lime, step=5),
             "pause_right_lime": frame.ratio((0.75, 0.35, 0.88, 0.55), _lime, step=5),
             "pause_tab_white": frame.ratio((0.30, 0.22, 0.72, 0.30), _white, step=8),
+            "post_next_title_dark": frame.ratio((0.02, 0.06, 0.23, 0.13), _dark, step=5),
+            "post_next_lime_band": frame.ratio((0.02, 0.10, 0.23, 0.15), _lime, step=5),
+            "post_next_card_lime": frame.ratio((0.02, 0.12, 0.27, 0.72), _lime, step=5),
+            "post_next_mid_white": frame.ratio((0.28, 0.13, 0.88, 0.72), _white, step=8),
             "race_white_hud": frame.ratio((0.02, 0.04, 0.22, 0.18), _white, step=5),
             "race_gray_hud": frame.ratio((0.02, 0.10, 0.22, 0.20), _gray_bar, step=5),
         }
@@ -124,6 +129,21 @@ class ForzaScreenDetector:
             return Detection(
                 STATE_PAUSE_MENU,
                 min(0.97, max(scores["pause_teal"], scores["pause_white_tiles"]) * 2),
+                scores,
+            )
+
+        # Post-race "Next stop" carousel. It can look like the pre-race menu to
+        # the lower-left lime/dark detector, but it has a black title plaque and
+        # lime category band near the top-left instead of the EventLab row menu.
+        if (
+            scores["post_next_title_dark"] >= 0.55
+            and scores["post_next_lime_band"] >= 0.035
+            and scores["post_next_card_lime"] >= 0.035
+            and scores["post_next_mid_white"] <= 0.20
+        ):
+            return Detection(
+                STATE_POST_RACE_NEXT,
+                min(0.96, 0.45 + scores["post_next_lime_band"] * 3 + scores["post_next_card_lime"] * 3),
                 scores,
             )
 

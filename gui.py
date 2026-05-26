@@ -12,6 +12,7 @@ from PIL import Image, ImageTk
 from app_controller import AppController
 from app_logging import LOG_PATH, log_startup_diagnostics, setup_logging
 import config
+from driver_check import VIGEMBUS_INSTALL_URL, check_vigembus, open_vigembus_download
 import focus
 from hotkeys import GlobalHotkey
 from modes import DEFAULT_MODE_ID, MODE_BUY_CAR, MODE_COMBO, MODE_SKILL_POINTS, debug_modes, get_mode, product_modes
@@ -108,6 +109,7 @@ class App:
         self.mode_var = tk.StringVar(value=DEFAULT_MODE_ID)
         self.show_debug_var = tk.BooleanVar(value=False)
         self.hint_var = tk.StringVar()
+        self.driver_status_var = tk.StringVar(value="正在检查虚拟手柄驱动...")
 
         self.image_refs = []
         self.full_image_refs = []
@@ -198,6 +200,7 @@ class App:
         self.hotkey.start()
         self.refresh_debug_visibility()
         self.apply_mode()
+        self.root.after(250, self.refresh_driver_status)
         self.root.after(500, self.connect_gamepad_async)
         self.root.after(100, self._tick)
 
@@ -318,6 +321,25 @@ class App:
             font=("Microsoft YaHei UI", 9, "bold"),
             anchor="w",
         ).grid(row=1, column=0, sticky="w", pady=(4, 0))
+
+        driver = tk.Frame(guide, bg=COLORS["bg_deep"])
+        driver.grid(row=2, column=0, sticky="we", pady=(7, 0))
+        driver.columnconfigure(0, weight=1)
+        tk.Label(
+            driver,
+            textvariable=self.driver_status_var,
+            bg=COLORS["bg_deep"],
+            fg="#d8e8df",
+            font=FONT_SMALL,
+            anchor="w",
+        ).grid(row=0, column=0, sticky="we")
+        self.driver_btn = ttk.Button(
+            driver,
+            text="安装/修复虚拟手柄驱动",
+            command=self.open_driver_page,
+            style="App.TButton",
+        )
+        self.driver_btn.grid(row=0, column=1, sticky="e", padx=(12, 0))
         return header
 
     def _card(self, parent, title, subtitle=None):
@@ -595,6 +617,20 @@ class App:
 
     def connect_gamepad_async(self):
         self.controller.connect_gamepad_async()
+
+    def refresh_driver_status(self):
+        status = check_vigembus()
+        self.driver_status_var.set(status.message)
+        if status.ok:
+            self.driver_btn.config(text="驱动说明")
+        else:
+            self.driver_btn.config(text="安装/修复虚拟手柄驱动")
+        self.logger.info("ViGEmBus GUI status: %s; detail=%s", status.message, status.detail)
+
+    def open_driver_page(self):
+        open_vigembus_download()
+        self._log(f"已打开 ViGEmBus 官方下载页：{VIGEMBUS_INSTALL_URL}")
+        self._log("下载安装后建议重启助手；如果系统要求重启电脑，请先重启。")
 
     def tap_button(self, name):
         self.controller.tap_button(name, auto_focus=self.auto_focus_var.get())

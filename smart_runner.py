@@ -10,6 +10,7 @@ from screen_detector import (
     STATE_CONFIRM_RESTART,
     STATE_CONTROLLER_DISCONNECTED,
     STATE_PAUSE_MENU,
+    STATE_POST_RACE_NEXT,
     STATE_PRESTART,
     STATE_PRESTART_WRONG_SELECTION,
     STATE_RACING,
@@ -209,6 +210,19 @@ class SmartRunner:
                     if not self._sleep(config.SMART_MENU_POLL_SECONDS * 2):
                         break
 
+                elif state == STATE_POST_RACE_NEXT:
+                    pad.neutral()
+                    in_race = False
+                    self.on_log("检测到赛后“下一站”页面，按 B 返回自由漫游后重新识别。")
+                    pad.tap("b", hold=0.15)
+                    if self._graceful_exit.is_set():
+                        self.exit_reason = self.exit_reason or "post_race_next"
+                        if not self._sleep(config.SMART_MENU_POLL_SECONDS * 3):
+                            break
+                        break
+                    if not self._sleep(config.SMART_MENU_POLL_SECONDS * 3):
+                        break
+
                 elif state == STATE_RACING:
                     if not in_race:
                         race_started = time.monotonic()
@@ -319,6 +333,7 @@ class SmartRunner:
             STATE_PRESTART: "图1 开始赛事菜单",
             STATE_PRESTART_WRONG_SELECTION: "图1 菜单光标不在开始赛事",
             STATE_PAUSE_MENU: "暂停菜单/剧情页",
+            STATE_POST_RACE_NEXT: "赛后下一站页面",
             STATE_RACING: "图2 正在游玩",
             STATE_RESULTS: "图3 完赛结果页",
             STATE_CONFIRM_RESTART: "图4 重开确认页",

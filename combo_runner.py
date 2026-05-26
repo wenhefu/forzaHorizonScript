@@ -17,6 +17,7 @@ from buy_car_detector import (
     STATE_EVENTLAB_MY_CARS_22B_READY,
     STATE_EVENTLAB_RACE_TYPE,
     STATE_PAUSE_MENU,
+    STATE_POST_RACE_NEXT,
     STATE_SKILL_POINTS_EXHAUSTED,
 )
 from buy_car_runner import BuyCarRunner
@@ -242,6 +243,11 @@ class ComboRunner:
             if detection.state == STATE_PAUSE_MENU:
                 self.on_log("组合模式：已经在暂停菜单，不再额外按 Menu。")
                 return True
+            if detection.state == STATE_POST_RACE_NEXT:
+                self.on_log("组合模式：检测到赛后“下一站”页面，按 B 返回自由漫游。")
+                if not self._tap(pad, "b", after=recovery_wait):
+                    return False
+                continue
             if detection.state == STATE_CONTROLLER_DISCONNECTED:
                 self.on_log("组合模式：检测到控制器未连接弹窗，按 A 恢复。")
                 if not self._tap(pad, "a", after=1.0):
@@ -266,6 +272,11 @@ class ComboRunner:
             if detection.state == STATE_PAUSE_MENU:
                 self.on_log("组合模式：已确认暂停菜单，移交给买车阶段。")
                 return True
+            if detection.state == STATE_POST_RACE_NEXT:
+                self.on_log("组合模式：Menu 后仍在赛后“下一站”页面，按 B 回自由漫游再重试。")
+                if not self._tap(pad, "b", after=recovery_wait):
+                    return False
+                continue
 
             # Menu didn't get us to the pause menu, so we probably weren't in
             # free roam yet — still on some EventLab post-race menu. Press A to
@@ -356,6 +367,17 @@ class ComboRunner:
         if not self._ensure_foreground(auto_focus, require_foreground):
             return False
 
+        detection = self._detect_buy(auto_focus, require_foreground)
+        if detection is None:
+            return False
+        if detection.state == STATE_POST_RACE_NEXT:
+            self.on_log("组合模式：启动时在赛后“下一站”页面，按 B 回自由漫游，再打开暂停菜单。")
+            if not self._tap(pad, "b", after=2.0):
+                return False
+            if not self._tap(pad, "start", after=1.5):
+                return False
+            return False
+
         try:
             smart_detection = self.smart_runner.detect_once()
         except Exception as exc:
@@ -364,10 +386,6 @@ class ComboRunner:
         if smart_detection and smart_detection.state in (STATE_PRESTART, STATE_PRESTART_WRONG_SELECTION):
             self.on_log("组合模式：启动时已在 EventLab 开始赛事菜单，直接续接刷分。")
             return True
-
-        detection = self._detect_buy(auto_focus, require_foreground)
-        if detection is None:
-            return False
 
         resumable_states = {
             STATE_EVENTLAB_MENU,

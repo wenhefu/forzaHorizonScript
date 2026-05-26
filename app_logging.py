@@ -9,7 +9,7 @@ import subprocess
 import sys
 
 
-APP_DIR = Path(__file__).resolve().parent
+APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 LOG_DIR = APP_DIR / "logs"
 LOG_PATH = LOG_DIR / "forza6helper.log"
 

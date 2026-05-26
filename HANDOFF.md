@@ -1,5 +1,37 @@
 # Handoff - Forza Horizon 6 Helper
 
+## 2026-05-26 EXE Packaging Prep
+
+本轮目标：把项目准备成能发给朋友的 exe，并把虚拟手柄驱动依赖做成更像产品的提示，而不是只丢一句“自己去装驱动”。
+
+已完成：
+
+- 新增 `driver_check.py`：启动时用 `sc.exe query ViGEmBus` 检查 ViGEmBus 是否安装并运行。
+- `gui.py` 顶部引导区新增虚拟手柄驱动状态和“安装/修复虚拟手柄驱动”按钮；按钮打开官方 release 页面。
+- `gamepad.py` 的虚拟手柄创建失败提示追加官方安装页，朋友电脑没装驱动时更容易自救。
+- `build.bat` 改为先安装依赖、跑 `compileall` 和单测，再用 PyInstaller 打包；现在会额外 `--collect-all vgamepad`，并把 `release\README.txt` 复制到 `dist\README.txt`。
+- 新增 `release\README.txt`，用于和 exe 一起发给朋友，说明 ViGEmBus 一次性安装、窗口模式和风险边界。
+- `app_logging.py` 在 PyInstaller onefile 环境下会把日志写到 exe 同目录的 `logs\forza6helper.log`，避免日志落在临时解压目录。
+
+## 2026-05-26 Post-Race Next Page Fix
+
+现场问题：组合模式到达每轮刷图时间后，`SmartRunner` 在结算页按 `A` 退出赛事，随后游戏会进入“下一站”推荐赛事页面。旧逻辑把这个页面误当成暂停菜单，导致组合模式提前进入下一轮并把 `SmartRunner` 启在错误页面上，随后开始反复按十字键上。
+
+已完成：
+
+- `buy_car_detector.py` 新增 `post_race_next` 状态，用 OCR 区分“下一站”推荐页和真正的暂停菜单；真正暂停菜单仍通过“世界地图 / 收集簿 / 剧情 / 车辆 / 创意中心 / 设置”等关键词识别。
+- `combo_runner.py` 在回暂停菜单流程中遇到 `post_race_next` 会按 `B` 返回自由漫游，再重新按 `Menu` 打开暂停菜单，不再直接进入下一轮买车。
+- `screen_detector.py` 和 `smart_runner.py` 也新增赛后“下一站”页面兜底识别；如果智能刷图模式单独遇到该页，会按 `B` 退回自由漫游，避免继续按上。
+- `buy_car_runner.py` 增加独立买车模式的同类恢复：识别到赛后“下一站”页时按 `B` 回自由漫游，再按 `Menu` 打开暂停菜单。
+- 新增 `tests/test_post_race_next.py`，覆盖“下一站”推荐页不应识别为暂停菜单，以及真正暂停菜单仍应保持 `buy_pause_menu`。
+
+追加修正：
+
+- 初版把暂停菜单关键词写得过宽，`购买与出售 / 车展` 页会被误判为 `buy_pause_menu`，导致买车阶段不停按 RB。
+- 已把 `购买与出售 / 车展 / 拍卖场 / 车辆通行证 / 票券车辆` 的判断放到暂停菜单判断之前，并移除暂停菜单判断里的泛化关键词 `剧情 / 车辆 / 在线 / 创意中心 / 商店 / 设置`。
+- `post_race_next` 现在要求“下一站”出现在左上标题位置，避免暂停菜单中间的“下一站”卡片误触发。
+- 测试补充覆盖 `购买与出售 / 车展` 不应被识别成暂停菜单。
+
 ## 2026-05-26 Wide Prep UI
 
 本轮目标：把窗口从偏正方形调整成横向长方形，并把用户给的三张准备截图放进产品 UI，而不是只写一段说明。

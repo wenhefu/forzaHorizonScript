@@ -4,7 +4,7 @@
 **不改任何游戏文件**，只模拟一个 Xbox 手柄。
 
 ## 一次性准备
-1. 安装 **ViGEmBus 驱动**（虚拟手柄的系统驱动）。没装的话点开始会有提示。
+1. 安装 **ViGEmBus 驱动**（虚拟手柄的系统驱动）。没装的话界面顶部会提示，并提供安装/修复按钮。
 2. 只有想改代码或自己打包的人，才需要再装 **Python 3**。
 
 ## 怎么用（拿到 exe 的朋友）
@@ -54,8 +54,8 @@
 - 比赛稳定行驶后：约 5 秒一次
 
 ## 自己打包成 exe（开发者）
-- 在 **Windows** 上双击 `build.bat`，生成 `dist\Forza6Helper.exe`，发给朋友即可。
-- 注意：exe 必须在 Windows 上打包；朋友的电脑也要各自装一次 ViGEmBus。
+- 在 **Windows** 上双击 `build.bat`，生成 `dist\Forza6Helper.exe` 和 `dist\README.txt`。
+- 发给朋友时建议把 exe 和 README 一起打包成 zip。exe 会在启动时检查 ViGEmBus；朋友电脑仍然需要各自装一次驱动。
 
 ## 提醒
 - 自动刷分违反 Forza 服务条款，理论上有封号风险，**自行斟酌**。
