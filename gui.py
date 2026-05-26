@@ -112,6 +112,7 @@ class App:
         self.show_debug_var = tk.BooleanVar(value=False)
         self.hint_var = tk.StringVar()
         self.driver_status_var = tk.StringVar(value="正在检查虚拟手柄驱动...")
+        self.driver_install_prompted = False
 
         self.image_refs = []
         self.full_image_refs = []
@@ -634,12 +635,32 @@ class App:
             self.driver_btn.config(text="驱动说明")
         else:
             self.driver_btn.config(text="安装/修复虚拟手柄驱动")
+            if not self.driver_install_prompted:
+                self.driver_install_prompted = True
+                self.root.after(200, lambda: self.prompt_driver_install(status))
         self.logger.info("ViGEmBus GUI status: %s; detail=%s", status.message, status.detail)
 
     def open_driver_page(self):
         open_vigembus_download()
         self._log(f"已打开 ViGEmBus 官方下载页：{VIGEMBUS_INSTALL_URL}")
         self._log("下载安装后建议重启助手；如果系统要求重启电脑，请先重启。")
+
+    def prompt_driver_install(self, status):
+        self.logger.warning("Prompting ViGEmBus install: %s; detail=%s", status.message, status.detail)
+        self._log(f"{status.message} 已自动打开 ViGEmBus 官方安装页。")
+        self._log("请下载最新安装包并按提示安装；安装完成后建议重启电脑，再重新打开助手。")
+        try:
+            open_vigembus_download()
+        except Exception as exc:
+            self.logger.exception("Unable to open ViGEmBus page")
+            self._log(f"无法自动打开安装页：{exc}")
+        messagebox.showwarning(
+            "需要安装虚拟手柄驱动",
+            "这台电脑还没有可用的 ViGEmBus 虚拟手柄驱动。\n\n"
+            "我已经为你打开官方安装页。请下载最新的 ViGEmBus 安装包，运行安装，并按 Windows 提示授权。\n\n"
+            "安装完成后建议重启电脑，然后重新打开 Forza6Helper.exe。",
+            parent=self.root,
+        )
 
     def open_project_page(self):
         webbrowser.open(PROJECT_URL)
