@@ -6,9 +6,11 @@ https://github.com/wenhefu/forzaHorizonScript
 1. 第一次使用前
    本助手通过“虚拟 Xbox 手柄”向游戏发送按键，所以每台电脑都需要先安装一次 ViGEmBus 驱动。
    助手启动后会自动检查驱动；如果没装，点界面顶部的“安装/修复虚拟手柄驱动”。
+   如果看到 VIGEM_ERROR_BUS_NOT_FOUND，意思就是这台电脑还没装好虚拟手柄驱动。
 
    官方下载页：
    https://github.com/nefarius/ViGEmBus/releases/latest
+   安装后建议重启电脑，再重新打开 Forza6Helper.exe。
 
 2. 游戏设置
    请先把地平线设置为窗口模式：

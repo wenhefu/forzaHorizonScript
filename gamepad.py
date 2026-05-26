@@ -3,24 +3,51 @@ import logging
 import threading
 import time
 
-import vgamepad as vg
 from driver_check import VIGEMBUS_INSTALL_URL
 
-# Friendly names -> XInput button enums, so config.py can use plain strings.
-BUTTONS = {
-    "a": vg.XUSB_BUTTON.XUSB_GAMEPAD_A,
-    "b": vg.XUSB_BUTTON.XUSB_GAMEPAD_B,
-    "x": vg.XUSB_BUTTON.XUSB_GAMEPAD_X,
-    "y": vg.XUSB_BUTTON.XUSB_GAMEPAD_Y,
-    "lb": vg.XUSB_BUTTON.XUSB_GAMEPAD_LEFT_SHOULDER,
-    "rb": vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_SHOULDER,
-    "start": vg.XUSB_BUTTON.XUSB_GAMEPAD_START,
-    "back": vg.XUSB_BUTTON.XUSB_GAMEPAD_BACK,
-    "dpad_up": vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_UP,
-    "dpad_down": vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_DOWN,
-    "dpad_left": vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_LEFT,
-    "dpad_right": vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_RIGHT,
-}
+BUTTON_NAMES = (
+    "a",
+    "b",
+    "x",
+    "y",
+    "lb",
+    "rb",
+    "start",
+    "back",
+    "dpad_up",
+    "dpad_down",
+    "dpad_left",
+    "dpad_right",
+)
+
+
+def _load_vgamepad():
+    try:
+        import vgamepad as vg
+    except Exception as exc:
+        raise RuntimeError(
+            "加载虚拟手柄库失败，请确认已安装 ViGEmBus 驱动。"
+            f"安装页：{VIGEMBUS_INSTALL_URL}。原始错误：{exc}"
+        ) from exc
+    return vg
+
+
+def _button_map(vg):
+    # Friendly names -> XInput button enums, so config.py can use plain strings.
+    return {
+        "a": vg.XUSB_BUTTON.XUSB_GAMEPAD_A,
+        "b": vg.XUSB_BUTTON.XUSB_GAMEPAD_B,
+        "x": vg.XUSB_BUTTON.XUSB_GAMEPAD_X,
+        "y": vg.XUSB_BUTTON.XUSB_GAMEPAD_Y,
+        "lb": vg.XUSB_BUTTON.XUSB_GAMEPAD_LEFT_SHOULDER,
+        "rb": vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_SHOULDER,
+        "start": vg.XUSB_BUTTON.XUSB_GAMEPAD_START,
+        "back": vg.XUSB_BUTTON.XUSB_GAMEPAD_BACK,
+        "dpad_up": vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_UP,
+        "dpad_down": vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_DOWN,
+        "dpad_left": vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_LEFT,
+        "dpad_right": vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_RIGHT,
+    }
 
 
 def _clamp(value, lo, hi):
@@ -31,9 +58,11 @@ class Gamepad:
     def __init__(self, logger=None):
         self.logger = logger or logging.getLogger("forza6helper")
         self._lock = threading.Lock()
+        self.vg = _load_vgamepad()
+        self.buttons = _button_map(self.vg)
         self.logger.info("Creating vgamepad VX360Gamepad")
         try:
-            self.pad = vg.VX360Gamepad()
+            self.pad = self.vg.VX360Gamepad()
         except Exception as e:  # most often: ViGEmBus driver not installed
             self.logger.exception("VX360Gamepad creation failed")
             raise RuntimeError(
@@ -68,19 +97,19 @@ class Gamepad:
             self.pad.left_joystick_float(x_value_float=_clamp(steer, -1.0, 1.0),
                                          y_value_float=0.0)
             for name in buttons:
-                if name not in BUTTONS:
-                    raise ValueError(f"unknown button {name!r}; valid: {sorted(BUTTONS)}")
-                self.pad.press_button(button=BUTTONS[name])
+                if name not in self.buttons:
+                    raise ValueError(f"unknown button {name!r}; valid: {sorted(BUTTON_NAMES)}")
+                self.pad.press_button(button=self.buttons[name])
             self.pad.update()
 
     def tap(self, name, hold=0.1):
         """Press then release one button (for menu navigation later)."""
-        if name not in BUTTONS:
-            raise ValueError(f"unknown button {name!r}; valid: {sorted(BUTTONS)}")
+        if name not in self.buttons:
+            raise ValueError(f"unknown button {name!r}; valid: {sorted(BUTTON_NAMES)}")
         with self._lock:
             self.logger.debug("gamepad tap button=%s hold=%.2f", name, hold)
-            self.pad.press_button(button=BUTTONS[name])
+            self.pad.press_button(button=self.buttons[name])
             self.pad.update()
             time.sleep(hold)
-            self.pad.release_button(button=BUTTONS[name])
+            self.pad.release_button(button=self.buttons[name])
             self.pad.update()

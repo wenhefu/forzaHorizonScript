@@ -6,6 +6,7 @@
 
 已完成：
 
+- 修复朋友电脑未安装 ViGEmBus 时 exe 直接崩溃的问题：`gamepad.py` 不再顶层导入 `vgamepad`，改为创建手柄时懒加载；`app_controller.py` 在常驻连接和开始运行前都会先检查 ViGEmBus，未就绪只提示安装/重启，不让 PyInstaller 弹 `VIGEM_ERROR_BUS_NOT_FOUND` 崩溃框。
 - `gui.py` 顶部右侧新增 **GitHub / 反馈** 入口，打开 `https://github.com/wenhefu/forzaHorizonScript`，用于查看更新和问题反馈。
 - `release\README.txt` 改成中文朋友版说明，包含仓库地址、ViGEmBus 一次性安装、窗口模式、开始前准备、模式时间含义、风险说明和日志位置。
 - 新增 `driver_check.py`：启动时用 `sc.exe query ViGEmBus` 检查 ViGEmBus 是否安装并运行。

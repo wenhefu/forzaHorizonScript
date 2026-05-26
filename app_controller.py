@@ -3,6 +3,7 @@ import logging
 import threading
 
 import config
+from driver_check import VIGEMBUS_INSTALL_URL, check_vigembus
 import focus
 from buy_car_runner import BuyCarRunner
 from combo_runner import ComboRunner
@@ -35,6 +36,11 @@ class AppController:
         threading.Thread(target=self._connect_gamepad_worker, name="gamepad-connect", daemon=True).start()
 
     def _connect_gamepad_worker(self):
+        status = check_vigembus()
+        if not status.ok:
+            self.logger.warning("Skip persistent gamepad connection: %s; detail=%s", status.message, status.detail)
+            self.on_log(f"{status.message} 请先安装/修复驱动，再重启助手。")
+            return
         try:
             self.get_gamepad()
             self.on_log("虚拟手柄已常驻连接。")
@@ -83,6 +89,13 @@ class AppController:
             settings.resume_after_focus,
             settings.no_activate,
         )
+
+        status = check_vigembus()
+        if not status.ok:
+            self.logger.warning("Start blocked because ViGEmBus is not ready: %s; detail=%s", status.message, status.detail)
+            self.on_log(f"{status.message} 请先点顶部按钮安装/修复 ViGEmBus，然后重启助手。")
+            self.on_log(f"官方下载页：{VIGEMBUS_INSTALL_URL}")
+            return False
 
         if settings.auto_focus:
             self.activate_game()
