@@ -124,13 +124,16 @@ class V4Mode3Runner:
         exit_after_farm: bool = True,
         auto_focus: bool = False,
         require_foreground: bool = True,
+        loop_rounds: int = 1,
     ) -> None:
         if self.is_running():
             self._log("V4 已在运行，忽略重复启动。")
             return
         self._stop.clear()
+        use_loop = self._loop_rounds(loop_rounds) != 1
+        target = self.run_loop if use_loop else self.run_once
         self._thread = threading.Thread(
-            target=self.run_once,
+            target=target,
             kwargs={
                 "startup_delay": startup_delay,
                 "farm_seconds": farm_seconds,
@@ -139,6 +142,7 @@ class V4Mode3Runner:
                 "exit_after_farm": exit_after_farm,
                 "auto_focus": auto_focus,
                 "require_foreground": require_foreground,
+                **({"loop_rounds": loop_rounds} if use_loop else {}),
             },
             name="v4-mode3-runner",
             daemon=True,
@@ -207,6 +211,75 @@ class V4Mode3Runner:
             if pad:
                 pad.neutral()
             self.write_report()
+
+    def run_loop(
+        self,
+        startup_delay: float = 0.0,
+        farm_seconds: float | None = None,
+        run_buy: bool = True,
+        run_farm: bool = True,
+        exit_after_farm: bool = True,
+        auto_focus: bool = False,
+        require_foreground: bool = True,
+        loop_rounds: int = 0,
+    ) -> bool:
+        rounds = self._loop_rounds(loop_rounds)
+        round_label = "无限" if rounds is None else str(rounds)
+        if not run_farm:
+            self._log("V4 完整循环需要刷图阶段；当前跳过刷图，所以只跑一轮。")
+            return self.run_once(
+                startup_delay=startup_delay,
+                farm_seconds=farm_seconds,
+                run_buy=run_buy,
+                run_farm=run_farm,
+                exit_after_farm=exit_after_farm,
+                auto_focus=auto_focus,
+                require_foreground=require_foreground,
+            )
+        if not exit_after_farm:
+            self._log("V4 完整循环需要刷图后收尾；当前关闭收尾，所以只跑一轮。")
+            return self.run_once(
+                startup_delay=startup_delay,
+                farm_seconds=farm_seconds,
+                run_buy=run_buy,
+                run_farm=run_farm,
+                exit_after_farm=exit_after_farm,
+                auto_focus=auto_focus,
+                require_foreground=require_foreground,
+            )
+        if self._farm_seconds(farm_seconds) is None:
+            self._log("V4 完整循环已启用，但刷图时间=0 表示本轮无限刷；外层不会进入下一轮，直到你停止或刷图器退出。")
+        if not run_buy:
+            self._log("V4 完整循环当前勾选了跳过买车；下一轮也不会重新买车/加点，只会从当前状态续接导航。")
+
+        completed_rounds = 0
+        while rounds is None or completed_rounds < rounds:
+            if self._stop.is_set():
+                self._log("V4 完整循环收到停止请求，结束外层循环。")
+                return completed_rounds > 0
+            current = completed_rounds + 1
+            self._log(f"V4 完整模式三循环：第 {current}/{round_label} 轮开始。")
+            ok = self.run_once(
+                startup_delay=startup_delay if current == 1 else 0.0,
+                farm_seconds=farm_seconds,
+                run_buy=run_buy,
+                run_farm=run_farm,
+                exit_after_farm=exit_after_farm,
+                auto_focus=auto_focus,
+                require_foreground=require_foreground,
+            )
+            reason = self.report.stopped_reason
+            self._log(f"V4 完整模式三循环：第 {current}/{round_label} 轮结束，结果={reason}。")
+            if not ok:
+                return False
+            completed_rounds += 1
+            if rounds is not None and completed_rounds >= rounds:
+                break
+            if not self._sleep(3.0):
+                return completed_rounds > 0
+
+        self._log(f"V4 完整模式三循环完成：共 {completed_rounds} 轮。")
+        return completed_rounds > 0
 
     def _run_buy_phase(self, auto_focus: bool, require_foreground: bool) -> bool:
         self._log("V4 买车/加点阶段交给 V1 BuyCarRunner；结束条件仍是技术点数不足弹窗。")
@@ -783,6 +856,15 @@ class V4Mode3Runner:
             return None
         return float(getattr(config, "COMBO_EVENTLAB_FARM_SECONDS", 90 * 60))
 
+    @staticmethod
+    def _loop_rounds(value: int | float | None) -> int | None:
+        if value is None:
+            return 1
+        rounds = int(value)
+        if rounds <= 0:
+            return None
+        return rounds
+
     def _farm_watchdog_seconds(self) -> float:
         return max(0.0, float(self.watchdog_seconds))
 
@@ -908,6 +990,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--skip-buy", action="store_true")
     parser.add_argument("--skip-farm", action="store_true")
     parser.add_argument("--no-exit-after-farm", action="store_true")
+    parser.add_argument(
+        "--loop-rounds",
+        type=int,
+        default=1,
+        help="Full mode-three outer rounds. 1 = one round, 0 = repeat buy/skill/farm until stopped.",
+    )
     parser.add_argument("--auto-focus", action="store_true", help="Use normal foreground activation if Forza is not foreground.")
     parser.add_argument("--allow-background", action="store_true", help="Do not require Forza to be foreground before inputs.")
     parser.add_argument("--report-dir", default="reports")
@@ -932,15 +1020,19 @@ def main(argv: list[str] | None = None) -> int:
         on_log=print,
     )
     runner._farm_mode = args.farm_mode
-    ok = runner.run_once(
-        startup_delay=args.startup_delay,
-        farm_seconds=args.farm_seconds,
-        run_buy=not args.skip_buy,
-        run_farm=not args.skip_farm,
-        exit_after_farm=not args.no_exit_after_farm,
-        auto_focus=args.auto_focus,
-        require_foreground=not args.allow_background,
-    )
+    run_kwargs = {
+        "startup_delay": args.startup_delay,
+        "farm_seconds": args.farm_seconds,
+        "run_buy": not args.skip_buy,
+        "run_farm": not args.skip_farm,
+        "exit_after_farm": not args.no_exit_after_farm,
+        "auto_focus": args.auto_focus,
+        "require_foreground": not args.allow_background,
+    }
+    if V4Mode3Runner._loop_rounds(args.loop_rounds) == 1:
+        ok = runner.run_once(**run_kwargs)
+    else:
+        ok = runner.run_loop(**run_kwargs, loop_rounds=args.loop_rounds)
     return 0 if ok else 2
 
 

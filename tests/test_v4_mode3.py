@@ -497,6 +497,48 @@ def test_farm_seconds_zero_is_unlimited_but_missing_override_uses_default():
     assert V4Mode3Runner._farm_seconds(None) > 0
 
 
+def test_loop_rounds_zero_means_unlimited_and_default_is_single_round():
+    assert V4Mode3Runner._loop_rounds(None) == 1
+    assert V4Mode3Runner._loop_rounds(1) == 1
+    assert V4Mode3Runner._loop_rounds(2) == 2
+    assert V4Mode3Runner._loop_rounds(0) is None
+    assert V4Mode3Runner._loop_rounds(-3) is None
+
+
+def test_run_loop_repeats_full_mode_three_rounds_and_only_delays_first_round():
+    runner = V4Mode3Runner.__new__(V4Mode3Runner)
+    runner._stop = threading.Event()
+    runner._log = lambda _message: None
+    runner._sleep = lambda _seconds: True
+    runner._farm_seconds = lambda _seconds: 180.0
+    runner.report = SimpleNamespace(stopped_reason="completed")
+    calls = []
+
+    def fake_run_once(**kwargs):
+        calls.append(kwargs)
+        runner.report.stopped_reason = "completed"
+        return True
+
+    runner.run_once = fake_run_once
+
+    assert V4Mode3Runner.run_loop(
+        runner,
+        startup_delay=4.0,
+        farm_seconds=180.0,
+        run_buy=True,
+        run_farm=True,
+        exit_after_farm=True,
+        auto_focus=True,
+        require_foreground=True,
+        loop_rounds=2,
+    )
+    assert len(calls) == 2
+    assert calls[0]["startup_delay"] == 4.0
+    assert calls[1]["startup_delay"] == 0.0
+    assert all(call["run_buy"] is True for call in calls)
+    assert all(call["run_farm"] is True for call in calls)
+
+
 def test_exit_after_farm_keeps_verifying_after_idle_menu_press():
     runner = V4Mode3Runner.__new__(V4Mode3Runner)
     runner.watchdog_seconds = 1.0

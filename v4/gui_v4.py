@@ -53,6 +53,7 @@ class V4App:
 
         # options
         self.farm_minutes = tk.StringVar(value="3")
+        self.loop_rounds = tk.StringVar(value="1")
         self.watchdog_secs = tk.StringVar(value="180")
         self.startup_delay = tk.StringVar(value="4")
         self.skip_buy = tk.BooleanVar(value=True)
@@ -120,9 +121,10 @@ class V4App:
         body = card.body
         body.columnconfigure(1, weight=1)
         self._field(body, 0, "跑图时间(分钟)", self.farm_minutes, "每轮刷图;0=一直跑")
-        self._field(body, 1, "看门狗(秒)", self.watchdog_secs, "某阶段卡死超过此秒数自动停")
-        self._field(body, 2, "启动倒计时(秒)", self.startup_delay, "点开始后留时间切回游戏")
-        row = 3
+        self._field(body, 1, "完整循环轮数", self.loop_rounds, "1=一轮;0=一直买车+刷图")
+        self._field(body, 2, "看门狗(秒)", self.watchdog_secs, "某阶段卡死超过此秒数自动停")
+        self._field(body, 3, "启动倒计时(秒)", self.startup_delay, "点开始后留时间切回游戏")
+        row = 4
         for text, var in [
             ("跳过买车阶段(从当前页直接导航去刷图)", self.skip_buy),
             ("跳过刷图阶段(只到开始赛事菜单)", self.skip_farm),
@@ -202,15 +204,20 @@ class V4App:
         if self.runner.is_running():
             return
         farm_minutes = self._read_float(self.farm_minutes, 3.0)
+        loop_rounds = int(self._read_float(self.loop_rounds, 1.0))
         farm_seconds = farm_minutes * 60.0 if farm_minutes > 0 else 0.0
         watchdog = max(20.0, self._read_float(self.watchdog_secs, 180.0))
         startup = max(0.0, self._read_float(self.startup_delay, 4.0))
         self.runner.watchdog_seconds = watchdog
         self.runner._farm_mode = self.farm_mode.get()
         self._log(
-            f"开始:farm_mode={self.farm_mode.get()} 跑图={farm_minutes}分钟 看门狗={watchdog:.0f}s "
+            f"开始:farm_mode={self.farm_mode.get()} 跑图={farm_minutes}分钟 完整循环={loop_rounds}轮 看门狗={watchdog:.0f}s "
             f"跳过买车={self.skip_buy.get()} 跳过刷图={self.skip_farm.get()}"
         )
+        if loop_rounds != 1 and self.skip_buy.get():
+            self._log("注意: 你启用了外层循环但勾选了跳过买车；循环不会重新买车/加点。")
+        if loop_rounds != 1 and farm_minutes <= 0:
+            self._log("注意: 跑图时间=0 会让单轮刷图一直跑；外层循环不会进入下一轮。")
         self._log(f"请在 {startup:.0f} 秒内把 Forza 切到前台并停在合适页面(买车从自由漫游/暂停起步)。")
         self.runner.start(
             startup_delay=startup,
@@ -220,6 +227,7 @@ class V4App:
             exit_after_farm=self.exit_after_farm.get(),
             auto_focus=self.auto_focus.get(),
             require_foreground=True,
+            loop_rounds=loop_rounds,
         )
 
     def on_stop(self):

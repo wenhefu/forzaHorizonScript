@@ -47,6 +47,8 @@ python v4_launcher.py --title Forza
 - `--skip-farm`：只跑到 EventLab 开始赛事菜单，不启动刷分。
 - `--farm-seconds 600`：把刷分阶段改为指定秒数，用于短验证。
 - `--farm-seconds 0`：刷图阶段不设目标时长，会一直跑到手动停止或视觉刷图器自身看门狗停止。
+- `--loop-rounds 3`：完整模式三外层循环 3 轮；每轮都会买车/加点、进 EventLab、刷图、收尾。
+- `--loop-rounds 0`：完整模式三外层一直循环，直到手动停止或某轮失败。注意这和 `--farm-seconds 0` 不同，后者是单轮刷图无限跑。
 - `--watchdog-seconds 120`：导航阶段 120 秒没有语义进展就触发恢复。
 - `--auto-focus`：只做普通前台切换，不启用 KeepActive/fake-focus。默认关闭。
 - `--allow-background`：跳过前台检查，主要用于只识别/调试，不推荐正式跑。

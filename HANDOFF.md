@@ -1,5 +1,20 @@
 # Handoff - Forza Horizon 6 Helper
 
+## 2026-05-30 hotfix 21 - V4 full mode-three outer loop control
+
+Clarification from user: after the 3-minute farm leg, "loop" should mean returning to buy/skill-points and then farming again, not only restarting races inside the farm runner.
+
+Changed:
+- `v4/mode3_runner.py`: added `run_loop(..., loop_rounds=...)` and `--loop-rounds`. `1` preserves the old one-leg behavior; positive values repeat full mode-three legs; `0` means repeat full legs until stopped or a leg fails. Only the first round uses `startup_delay`.
+- `v4/gui_v4.py`: added `完整循环轮数` (`1=一轮;0=一直买车+刷图`) and passes it into the runner. The GUI now warns if outer looping is enabled while `跳过买车` is still checked, or while `跑图时间=0` makes a single farm leg infinite.
+- `tests/test_v4_mode3.py`: added regression tests for loop-round parsing and multi-round `run_loop`.
+- `README_V4.md`: documented `--loop-rounds`.
+
+Operational semantics:
+- `跑图时间=3` + `完整循环轮数=1`: buy/nav/farm for about 3 minutes, then finish.
+- `跑图时间=3` + `完整循环轮数=0` + `跳过买车=否`: repeat buy/skill -> EventLab -> farm 3 minutes -> cleanup forever, until stopped/failure.
+- `跑图时间=0`: the current farm leg is infinite, so the outer loop will not advance to the next buy cycle unless the farm runner exits.
+
 ## 2026-05-30 hotfix 20 - V4 farm duration zero is truly continuous
 
 User expected the V4 GUI's `跑图时间(分钟)=0` label (`0=一直跑`) to mean a continuous farm. The GUI label was ahead of the runner behavior: GUI passed `None`, and `V4Mode3Runner._farm_seconds(None)` converted it to the config default 90-minute leg.
