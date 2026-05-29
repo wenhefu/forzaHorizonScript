@@ -1,5 +1,22 @@
 # Handoff - Forza Horizon 6 Helper
 
+## 2026-05-30 hotfix 18 - Vision farm loop: live-smoke fixes (start-on-empty-focus, controller keyboard recovery)
+
+Continuation of hotfix 17. Ran four live smokes of the vision farm loop (`--skip-buy --farm-mode vision`); each surfaced and fixed one edge case. Only `v4/farm_runner.py` changed here (plus this doc).
+
+Fixes added on top of 17:
+- `race_menu` detected but the start-focus text was not OCR'd (selected empty): the farm runner now presses `A` to start when it is NOT mid-race (the EventLab start menu's default focus is 开始赛事). It still never presses DpadUp; during launch/race the same ambiguous frame is handled as throttle, not A.
+- Controller-disconnected recovery: try the virtual pad's `A` first (works once the pad is warm); if it persists, the game has fallen back to keyboard input (the modal shows `Enter 确定`), so the runner does a real title-bar click to focus + presses keyboard `Enter`. Focus loss (e.g. other window activity / a sampler process exiting) drops the virtual pad; this recovers without stalling. Added `_click_to_focus` / `_press_enter` to `VisionFarmRunner`.
+
+Live-smoke results:
+- Navigation worked end-to-end every time (creative hub -> EventLab -> 我的收藏 -> SP Farm -> single player -> 22B).
+- Smoke 2: farm loop started a race and completed 3 laps (race_hud seen, results->X restart, restart modal->A). Then a DpadUp "calibrate" press on a misread start-line frame opened Photo Mode -> fixed in 17 (DpadUp removed + launch window).
+- Smoke 4 (after fixes): started via A, then 25 `results->X` cycles in 60s + graceful exit at the time limit, NO Photo Mode, clean completion.
+
+OPEN QUESTION (needs verification): smoke 4 logged 25 `race_result->X` cycles in 60s with NO `race_hud` frame. Either the `SP Farm / 24s` event completes near-instantly (genuine fast farming) or the loop is X-ing a screen it mis-reads as `race_result` (no real racing). Do NOT add a "require race_hud between starts" guard until the event's true duration is known -- it could false-flag a legitimately instant farm. Resolve by user visual confirmation (did the car drive / did skill points rise?) or a self-verifying instrumented run.
+
+Verification: `python -m pytest -q` -> 111 passed, 22 skipped. No V1 stable files changed.
+
 ## 2026-05-30 hotfix 17 - Vision-guided farm loop (VisionFarmRunner) + Photo Mode safety fix
 
 Goal: make V4 mode-three robust across resolutions by moving the farm phase off V1's fixed-fraction `SmartRunner` onto the aspect-robust V3 hybrid (this is the part the user ran for days and the part that broke on a friend's ultrawide; the simulated-ultrawide test in this session passed).

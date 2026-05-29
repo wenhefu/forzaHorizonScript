@@ -14,9 +14,11 @@ between cycles, so the car keeps driving smoothly even while the recognizer
 re-reads the screen.
 """
 
+import ctypes
 import logging
 import threading
 import time
+from ctypes import wintypes
 
 import focus
 from v4.decision import decide_farm_loop, normalize_button
@@ -120,6 +122,37 @@ class VisionFarmRunner:
         except Exception:
             pass
 
+    def _click_to_focus(self) -> bool:
+        """Real title-bar click to focus Forza. SetForegroundWindow from a
+        background process is refused by Windows; a synthetic click is honored."""
+        hwnd = focus.find_window(self.title)
+        if not hwnd or not focus.user32:
+            return False
+        try:
+            rect = wintypes.RECT()
+            if not focus.user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+                return False
+            x = int(rect.left + min(160, max(60, (rect.right - rect.left) * 0.10)))
+            y = int(rect.top + 16)
+            focus.user32.SetCursorPos(x, y)
+            time.sleep(0.05)
+            focus.user32.mouse_event(0x0002, 0, 0, 0, 0)
+            time.sleep(0.05)
+            focus.user32.mouse_event(0x0004, 0, 0, 0, 0)
+            time.sleep(0.2)
+            return True
+        except Exception:
+            return False
+
+    def _press_enter(self) -> None:
+        try:
+            user32 = ctypes.windll.user32
+            user32.keybd_event(0x0D, 0, 0, 0)
+            time.sleep(0.12)
+            user32.keybd_event(0x0D, 0, 0x0002, 0)
+        except Exception:
+            pass
+
     def _race_poll_interval(self, race_started: float | None) -> float:
         if race_started is None:
             return min(0.6, self.race_poll)
@@ -155,6 +188,7 @@ class VisionFarmRunner:
         unknown_throttle_since: float | None = None
         launching = False
         launch_since = 0.0
+        controller_strikes = 0
         last_screen: str | None = None
         last_token: str | None = None
         last_progress = time.monotonic()
@@ -207,6 +241,31 @@ class VisionFarmRunner:
 
                 decision = decide_farm_loop(v3, graceful_exit=self._graceful.is_set())
                 name = decision.name
+                if name != "farm_dismiss_controller":
+                    controller_strikes = 0
+
+                # Controller-disconnected recovery: try the virtual pad's A
+                # first (works once the pad is warm). If it persists, the game
+                # has fallen back to keyboard input (the modal shows "Enter 确定"),
+                # so click-to-focus + press Enter. Focus loss (e.g. other window
+                # activity) drops the virtual pad; this recovers without stalling.
+                if name == "farm_dismiss_controller":
+                    in_race = False
+                    race_started = None
+                    unknown_throttle_since = None
+                    launching = False
+                    pad.neutral()
+                    controller_strikes += 1
+                    if controller_strikes <= 2:
+                        self.on_log(f"视觉刷图：控制器未连接，虚拟手柄按 A 重连(第 {controller_strikes} 次)。")
+                        pad.tap("a", hold=0.15)
+                    else:
+                        self.on_log("视觉刷图：控制器弹窗未消(疑似已切键盘模式)，点标题栏聚焦 + 键盘 Enter 兜底。")
+                        self._click_to_focus()
+                        self._press_enter()
+                    if not self._sleep(1.2):
+                        break
+                    continue
 
                 # Launch window: right after pressing A to start a race, the
                 # countdown / loading / start-line frames can mis-read as
@@ -239,6 +298,22 @@ class VisionFarmRunner:
                     unknown_throttle_since = None
                     pad.apply(throttle=1.0)
                     if not self._sleep(self._race_poll_interval(race_started)):
+                        break
+                    continue
+
+                # 1b) Ambiguous race start menu: detected race_menu but the
+                #     start-focus text was not read. If we are NOT mid-race this
+                #     is the start menu (its default focus is 开始赛事) -> press A
+                #     to start; the launch window then holds throttle. We never
+                #     press DpadUp (during launch/race this name is handled above
+                #     as throttle, so A only fires from a real, idle start menu).
+                if name == "farm_wait_race_menu_focus" and not in_race:
+                    pad.neutral()
+                    self.on_log("视觉刷图：识别到开始赛事菜单(焦点文字未读出)，按 A 开赛(默认焦点=开始赛事)。")
+                    pad.tap("a", hold=0.15)
+                    launching = True
+                    launch_since = time.monotonic()
+                    if not self._sleep(self._settle_for("farm_start_race")):
                         break
                     continue
 
