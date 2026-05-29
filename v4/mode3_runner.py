@@ -25,6 +25,7 @@ from v4.decision import (
     normalize_button,
     progress_token,
 )
+from v4.farm_runner import VisionFarmRunner
 from v4.recognizer import V4Recognizer, V4Snapshot
 from v4.watchdog import ProgressWatchdog
 
@@ -92,6 +93,15 @@ class V4Mode3Runner:
         self._thread: threading.Thread | None = None
         self.buy_runner = BuyCarRunner(on_log=self.on_log, logger=self.logger, pad_provider=self._pad_provider)
         self.smart_runner = SmartRunner(on_log=self.on_log, logger=self.logger, pad_provider=self._pad_provider)
+        self.vision_farm_runner = VisionFarmRunner(
+            title=title,
+            recognizer=self.recognizer,
+            on_log=self.on_log,
+            logger=self.logger,
+            pad_provider=self._pad_provider,
+            stall_seconds=self.watchdog_seconds,
+        )
+        self._farm_mode = "vision"
         self.report = V4RunReport(datetime.now(timezone.utc).astimezone().isoformat(), title)
         self._step_index = 0
 
@@ -139,6 +149,7 @@ class V4Mode3Runner:
         self._stop.set()
         self.buy_runner.stop()
         self.smart_runner.stop()
+        self.vision_farm_runner.stop()
         if self._pad:
             self._pad.neutral()
 
@@ -429,42 +440,46 @@ class V4Mode3Runner:
         return False
 
     def _run_farm_phase(self, farm_seconds: float, auto_focus: bool, require_foreground: bool) -> bool:
-        self._log(f"V4 已到开始赛事菜单，交给 V1 SmartRunner 跑模式一约 {farm_seconds / 60:.1f} 分钟。")
+        if self._farm_mode == "smart":
+            runner, label = self.smart_runner, "V1 SmartRunner"
+        else:
+            runner, label = self.vision_farm_runner, "V3 视觉刷图 VisionFarmRunner"
+        self._log(f"V4 已到开始赛事菜单，交给 {label} 跑模式一约 {farm_seconds / 60:.1f} 分钟。")
         started = time.monotonic()
         farm_watchdog_seconds = self._farm_watchdog_seconds()
         farm_deadline_logged = False
-        self.smart_runner.start(
+        runner.start(
             startup_delay=0.0,
             total_seconds=farm_seconds,
             auto_focus=auto_focus,
             require_foreground=require_foreground,
         )
-        while self.smart_runner.is_running() and not self._stop.is_set():
+        while runner.is_running() and not self._stop.is_set():
             elapsed = time.monotonic() - started
             if elapsed >= farm_seconds and not farm_deadline_logged:
                 farm_deadline_logged = True
                 self._log(
-                    "V4 刷分目标时长已到，等待 SmartRunner 平滑退出；"
+                    "V4 刷分目标时长已到，等待刷图器平滑退出；"
                     f"最多再等 {farm_watchdog_seconds:.0f} 秒。"
                 )
             if elapsed >= farm_seconds + farm_watchdog_seconds:
                 reason = (
                     f"farm_watchdog_stop after {elapsed:.1f}s "
-                    f"(target={farm_seconds:.1f}s, smart_reason={self.smart_runner.exit_reason or 'unknown'})"
+                    f"(target={farm_seconds:.1f}s, farm_reason={runner.exit_reason or 'unknown'})"
                 )
                 self.report.errors.append(reason)
                 self._log(
-                    "V4 farm 看门狗触发：SmartRunner 超过目标时长后仍未退出，"
+                    "V4 farm 看门狗触发：刷图器超过目标时长后仍未退出，"
                     "已强制停止并把控制权交回 V4。"
                 )
-                self.smart_runner.stop()
-                self._join_smart_runner(timeout=5.0)
+                runner.stop()
+                self._join_runner(runner, timeout=5.0)
                 break
             if not self._sleep(0.25):
                 break
         if self._stop.is_set():
             return False
-        self._log(f"V4 刷分阶段结束：{self.smart_runner.exit_reason or 'unknown'}。")
+        self._log(f"V4 刷分阶段结束：{runner.exit_reason or 'unknown'}。")
         return True
 
     def _exit_after_farm(self, pad, auto_focus: bool, require_foreground: bool) -> bool:
@@ -836,6 +851,14 @@ class V4Mode3Runner:
                 self.report.errors.append("smart_runner_thread_still_alive_after_stop")
                 self._log("V4 警告：SmartRunner 已请求停止，但线程仍未在等待窗口内结束。")
 
+    def _join_runner(self, runner, timeout: float = 5.0) -> None:
+        thread = getattr(runner, "_thread", None)
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=max(0.0, float(timeout)))
+            if thread.is_alive():
+                self.report.errors.append("farm_runner_thread_still_alive_after_stop")
+                self._log("V4 警告：刷图器已请求停止，但线程仍未在等待窗口内结束。")
+
     def _finish(self, completed: bool, reason: str) -> bool:
         self.report.completed = bool(completed)
         self.report.stopped_reason = reason
@@ -873,6 +896,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--auto-focus", action="store_true", help="Use normal foreground activation if Forza is not foreground.")
     parser.add_argument("--allow-background", action="store_true", help="Do not require Forza to be foreground before inputs.")
     parser.add_argument("--report-dir", default="reports")
+    parser.add_argument(
+        "--farm-mode",
+        choices=("vision", "smart"),
+        default="vision",
+        help="Farm loop driver: V3 vision-guided (default) or V1 SmartRunner fallback.",
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(
@@ -887,6 +916,7 @@ def main(argv: list[str] | None = None) -> int:
         report_dir=args.report_dir,
         on_log=print,
     )
+    runner._farm_mode = args.farm_mode
     ok = runner.run_once(
         startup_delay=args.startup_delay,
         farm_seconds=args.farm_seconds,

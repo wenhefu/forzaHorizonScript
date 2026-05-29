@@ -613,3 +613,162 @@ def _first_action_button(v3: Any, allowed: set[str]) -> str:
         if normalize_text(button) in {normalize_text(item) for item in allowed}:
             return button
     return ""
+
+
+# --- Farm loop: vision-guided replacement for the V1 SmartRunner state machine ---
+
+FARM_START_FOCUS_KEYWORDS = ("开始赛事", "开始竞赛", "开始比赛", "STARTEVENT", "STARTRACE")
+
+
+def _is_start_race_focus(selected_item: str) -> bool:
+    text = str(selected_item or "")
+    normalized = normalize_text(text)
+    if any(normalize_text(keyword) in normalized for keyword in FARM_START_FOCUS_KEYWORDS):
+        return True
+    return "开始" in text and any(token in text for token in ("赛事", "竞赛", "比赛"))
+
+
+def decide_farm_loop(v3: Any, graceful_exit: bool = False) -> V4Decision:
+    """Choose the next farm-loop action from V3 hybrid recognition only.
+
+    Ports the V1 SmartRunner state machine (prestart->A, racing->throttle,
+    results->X / graceful A, confirm-restart->A, post-race->B, pause->B,
+    controller-disconnected->A) onto the aspect-robust V3 hybrid screens, so the
+    farm phase no longer depends on V1's fixed-fraction ForzaScreenDetector.
+
+    The runner interprets ``race_drive_throttle`` (button "") as "hold full
+    throttle this cycle" rather than a button tap.
+    """
+    screen = str(getattr(v3, "screen", "") or "unknown")
+    selected_item = str(getattr(v3, "selected_item", "") or "")
+    confidence = float(getattr(v3, "confidence", 0.0) or 0.0)
+
+    if screen == "controller_disconnected":
+        return V4Decision(
+            "farm_dismiss_controller",
+            "A",
+            "控制器未连接弹窗,按 A 让虚拟手柄重新接入。",
+            "按后必须重新识别,不再显示 controller_disconnected。",
+            max(confidence, 0.75),
+        )
+
+    if screen == "race_hud":
+        return V4Decision(
+            "race_drive_throttle",
+            "",
+            "比赛进行中,保持油门到底。",
+            "保持识别 race_hud;变为 race_result/race_menu 时切换动作。",
+            max(confidence, 0.80),
+        )
+
+    # EventLab race start menu: trust the focused tile text. This menu reads as
+    # race_menu, but is sometimes misclassified as pause_story (the inverse of
+    # the race_hud<->race_menu confusion). In either case a focused
+    # 开始赛事/开始竞赛赛事 tile means "start the race" -> press A.
+    if _is_start_race_focus(selected_item) and (
+        screen in ("race_menu", "prestart")
+        or screen.startswith("pause_")
+        or screen == "pause_menu"
+    ):
+        return V4Decision(
+            "farm_start_race",
+            "A",
+            f"开始赛事菜单(焦点=开始赛事,画面识别为 {screen}),按 A 开赛。",
+            "按后应进入 race_hud 或 loading_transition;否则重新校准焦点。",
+            max(confidence, 0.80),
+        )
+
+    if screen in ("race_menu", "prestart"):
+        # Do NOT press DpadUp to "calibrate" here: in-race DpadUp opens Photo
+        # Mode, and a race_menu-without-start-focus frame is usually a misread
+        # countdown/driving frame rather than a genuine wrong cursor. Wait for a
+        # confirmed 开始赛事 focus instead; the runner holds throttle through the
+        # launch window so a real race still launches.
+        return V4Decision(
+            "farm_wait_race_menu_focus",
+            "",
+            f"识别为开始赛事菜单但未确认焦点=开始赛事(当前 {selected_item or '空'});不按 DpadUp(赛中=拍照模式),等待重新识别。",
+            "等待焦点变成开始赛事再按 A;若其实是比赛/过场帧,执行器会按在比赛中保持油门处理。",
+            min(confidence, 0.62),
+        )
+
+    if screen == "race_result":
+        if graceful_exit:
+            return V4Decision(
+                "farm_graceful_exit_results",
+                "A",
+                "结算页且已请求平滑退出,按 A 退出比赛把控制权交还上层。",
+                "按后应进入 post_race_next / pause_* / free_roam_hud。",
+                max(confidence, 0.80),
+            )
+        return V4Decision(
+            "farm_restart_results",
+            "X",
+            "结算页,按 X 重开下一圈继续刷分。",
+            "按后应进入重开确认框或直接 loading/race_hud。",
+            max(confidence, 0.80),
+        )
+
+    if screen in ("modal_warning", "confirm_restart") and looks_like_restart_event_modal(
+        _combined_text(v3, selected_item)
+    ):
+        if graceful_exit:
+            return V4Decision(
+                "farm_cancel_restart",
+                "B",
+                "平滑退出中,按 B 取消重开,等下次结算页用 A 退出。",
+                "按后应回到结算页或比赛。",
+                max(confidence, 0.74),
+            )
+        return V4Decision(
+            "farm_confirm_restart",
+            "A",
+            "重开确认框,按 A 确认重新开始赛事。",
+            "按后应进入 loading_transition 或 race_hud。",
+            max(confidence, 0.80),
+        )
+
+    if screen == "post_race_next":
+        return V4Decision(
+            "farm_leave_post_race",
+            "B",
+            "赛后下一站页,按 B 返回自由漫游;平滑退出时此处即可交还上层。",
+            "按后应进入 free_roam_hud / idle_showcase / pause_*。",
+            max(confidence, 0.76),
+            terminal=graceful_exit,
+        )
+
+    if screen == "race_pause_menu":
+        return V4Decision(
+            "farm_resume_from_race_pause",
+            "B",
+            "比赛中的暂停菜单(创意中心等带锁),按 B 返回当前比赛。",
+            "按后应重新识别到 race_hud / race_menu。",
+            max(confidence, 0.74),
+        )
+
+    if screen.startswith("pause_") or screen == "pause_menu":
+        return V4Decision(
+            "farm_return_from_pause",
+            "B",
+            "暂停菜单,按 B 返回赛事/比赛页面后重新识别。",
+            "按后应进入 race_menu / race_hud;未变化不连按。",
+            max(confidence, 0.64),
+        )
+
+    if screen == "loading_transition":
+        return V4Decision(
+            "farm_wait_loading",
+            "",
+            "过场/加载帧,没有可操作 UI,等待下一帧。",
+            "等待重新识别到明确页面。",
+            confidence,
+        )
+
+    return V4Decision(
+        "farm_wait_unknown",
+        "",
+        f"刷分阶段暂时不能识别页面 {screen};等待重新识别。",
+        "等待;若刚才在比赛中,执行器会保持油门避免赛中松油。",
+        min(confidence, 0.55),
+    )

@@ -1,5 +1,84 @@
 # Handoff - Forza Horizon 6 Helper
 
+## 2026-05-30 hotfix 17 - Vision-guided farm loop (VisionFarmRunner) + Photo Mode safety fix
+
+Goal: make V4 mode-three robust across resolutions by moving the farm phase off V1's fixed-fraction `SmartRunner` onto the aspect-robust V3 hybrid (this is the part the user ran for days and the part that broke on a friend's ultrawide; the simulated-ultrawide test in this session passed).
+
+New / changed:
+- `v4/decision.py`: `decide_farm_loop(v3, graceful_exit)` -- a vision farm state machine (race_menu/prestart->A start, race_hud->hold throttle, race_result->X / graceful A, restart-confirm modal->A or B, post_race_next->B, race_pause_menu/pause_*->B, controller_disconnected->A). It trusts the focused-tile text `开始(竞赛)赛事` to start a race even when the start menu mis-reads as pause_story, and it NEVER emits DpadUp.
+- `v4/farm_runner.py` (new): `VisionFarmRunner`, mirrors the SmartRunner interface (start/stop/is_running/request_graceful_exit/exit_reason). Throttle persists between cycles so driving stays smooth while it re-recognizes. A "launch window" holds throttle through the post-start countdown/loading until the HUD confirms. Stall watchdog + graceful exit.
+- `v4/mode3_runner.py`: `--farm-mode {vision,smart}` (default vision; smart = V1 SmartRunner fallback). Farm phase now uses the selected runner, reuses the single `V4Recognizer` (no double ONNX load), generic `_join_runner`.
+- `v3/hybrid.py`: fusion guard -- a confident V2 driving-HUD (`race_hud`/`free_roam_hud`, conf>=0.70) is no longer overridden by a YOLO menu/focus detection. This fixed `race_hud` being 100% misclassified as `race_menu` (the YOLO model over-fires race_menu).
+- `tests/test_v4_mode3.py`: 11 new tests, including `test_farm_loop_never_emits_dpad_up`.
+
+Recognition findings (the weak area is the race states):
+- race_hud<->race_menu confusion: YOLO false-positive race_menu beat a confident V2 race_hud. Fixed in `_fuse_screen`.
+- race_menu<->pause_story confusion: the EventLab race start menu often classifies as `pause_story`. Mitigated by trusting the `开始赛事` focus text in `decide_farm_loop` (verified 7/8 on real samples).
+- At the start line / countdown the HUD text (进度/时间/KM/H) is not rendered, so V2 does not say race_hud -> those frames mis-read as race_menu. The launch window holds throttle through that window.
+- DANGER fixed: D-pad Up during a race opens Photo Mode in Forza. The first vision-farm smoke pressed DpadUp ("calibrate cursor") on misread start-line frames and opened Photo Mode. DpadUp is now removed from the farm loop entirely.
+
+Live smoke (`--skip-buy --farm-mode vision`):
+- Navigation worked end-to-end autonomously: creative hub -> EventLab -> 我的收藏 -> SP Farm -> single player -> selected 22B.
+- Farm loop started races, drove, completed 3 laps (results->X restart, restart modal->A). Core loop is functional.
+- Photo Mode mis-trigger found and fixed (DpadUp removal + launch window). Re-smoke of the fixed loop is still pending.
+
+Verification:
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+# 111 passed, 22 skipped
+.\.venv\Scripts\python.exe -m py_compile v3\hybrid.py v4\decision.py v4\farm_runner.py v4\mode3_runner.py
+# decide_farm_loop validated on real race samples; race_hud confusion fixed (20/20 correct after fusion guard)
+```
+
+Run:
+```powershell
+.\.venv\Scripts\python.exe -m v4.mode3_runner --skip-buy --farm-seconds 75 --farm-mode vision --watchdog-seconds 60 --auto-focus
+# Needs Forza foreground (background SetForegroundWindow is blocked) and the game at/near the EventLab 开始赛事 menu.
+```
+
+Residual / next:
+- Re-smoke the fixed farm loop end-to-end (confirm no Photo Mode, car launches, multiple clean laps).
+- Deeper recognizer fix: classify start-line/countdown as race_hud (reduce reliance on the launch-window + start-focus-text workarounds); retrain YOLO to stop race_menu over-firing and strengthen race states.
+- Buy phase still uses V1 `BuyCarRunner` (fixed-fraction, brittle on ultrawide) -- migrate to vision next for full robustness.
+- Ultrawide still needs the friend's real 21:9 samples for true validation.
+- No V1 stable main-flow files were edited.
+
+## 2026-05-29 hotfix 16 - Human-in-the-loop co-op capture + race_pause_menu recovery
+
+User asked to evaluate the sample-collection tooling and help close the audit deficits by walking the mode-three flow. We ran a co-op collection pass: the user drove with a real controller, a new tool captured on screen-change and sent no input.
+
+New tool:
+- `v3/coop_capture.py`: human-in-the-loop capture-on-change sampler. Sends NO input. A cheap downscaled-grayscale diff gates the expensive OCR/analysis (so the game does not stutter), `--min-interval` limits save rate, and a semantic de-dupe skips re-saving the same `(screen, selected_item)` within `--resave-cooldown` (kills the 3D-car-rotating-behind-a-static-menu spam). Uses the V3 `HybridVisionRecognizer` for labels (falls back to V2 if ONNX will not load). Stop via `reports/coop_capture_stop.flag` or `--max-seconds`.
+
+Key runtime findings (vgamepad / focus), discovered while probing before any long run:
+- A freshly created vgamepad's `A` does NOT dismiss the `控制器未连接` modal (cold pad). Keyboard `Enter` does, but only after a real title-bar click to focus the window. Once the pad has been alive a few seconds it works for both navigation (RB/LB/dpad verified) and modal dismissal.
+- `SetForegroundWindow` from a background-launched process is blocked by Windows. A real `mouse_event` click on the title bar is required to focus Forza, or keep it foreground manually.
+- `race_sampler` stalls at Creative-Hub -> EventLab landing: the recognizer labels both the creative-hub-with-eventlab-tile page AND the EventLab landing page (`游玩赛事/创建/...`) as `eventlab_home`, and `race_sampler` only presses `A` once (never `游玩赛事`), so it times out waiting for `eventlab_events/favorites`.
+
+Data fix this pass:
+- `coop_capture` v1 used the V2 analyzer (via `SampleCollector.analyze_frame`), which lacks `race_pause_menu` detection, so in-race pause frames were saved correctly but mislabeled `pause_story`. A targeted V3 relabel (V3 hybrid has the locked-tile `race_pause_menu` fallback from hotfix 13) recovered 11 frames `pause_story -> race_pause_menu` (incl. 3 from an earlier walk). `coop_capture` now uses the V3 hybrid so future walks label these correctly without relabeling. `relabel_raw_samples.py` is V2-only and would overwrite this; do not run it globally over the V3-relabeled frames.
+
+Known remaining recognizer gap:
+- `pause_creative_hub` stays at 10 because the creative-hub page is labeled `eventlab_home` (same overloaded-label root cause; neither V2 nor V3 distinguishes 创意中心 from the EventLab landing page). The samples exist hidden in the 80 `eventlab_home` rows. Needs a recognizer fix that separates 创意中心 (tiles: 地产/车库布局/涂装设计) from EventLab landing (游玩赛事/创建/参加挑战/预制件).
+
+Collection results (raw 995 -> 1226, net after pruning 47 junk):
+- `vehicle_buy_grid` 2->17, `race_menu` screen 1->15 / YOLO 19->59, `eventlab_filter` 0->9, `race_pause_menu` 0->11, `eventlab_my_cars` 14->30, `my_cars_card_focus` 22->53, `autoshow_buy_sell` 4->28, `race_hud` 19->44 (ok), `skill_points_exhausted` 0->1, `color_select` 1->4, `car_preview` 3->6, `purchase_confirm` 2->4.
+- Cleanup: moved 47 junk frames (33 `unknown` transition + 14 `race_sampler` `eventlab_home` timeout dupes) to `datasets/forza_ui/_pruned/` (reversible).
+
+Still critically short (next pass):
+- `race_result` 7/80, `post_race_next` 5/80: the user paused a lot but did not finish a race this walk; needs actually-completed races (linger on result + next-stop pages).
+- `vehicle_buy_grid` 17/100, `design_card_focus` 1/50 (never entered the design/livery grid), `eventlab_filter` 9/60, `race_pause_menu` 11/60.
+
+Commands:
+```powershell
+.\.venv\Scripts\python.exe -m v3.coop_capture --title Forza --max-seconds 1500 --resave-cooldown 4
+# stop early: create reports\coop_capture_stop.flag
+.\.venv\Scripts\python.exe -m v3.dataset --no-augment
+.\.venv\Scripts\python.exe -m v3.dataset_audit --raw-root datasets\forza_ui\raw --dataset-root datasets\forza_ui\yolo --output-dir reports
+```
+
+Safety / scope: the tool sends no input; collection was co-op with the user's real controller. No V1 stable files changed. New file: `v3/coop_capture.py`. Modified: ~11 raw `metadata.json` (screen relabel only), regenerated `datasets/forza_ui/yolo`. Not yet committed. Next: retrain YOLO on the improved set (augmented `v3.dataset` first), fix the `eventlab_home`/`pause_creative_hub` overloaded label, and one short walk that finishes races for `race_result`/`post_race_next`.
+
 ## 2026-05-29 hotfix 15 - Dataset audit and targeted collection plan
 
 User asked how to solve the gap where the dataset is already over 1GB but still has insufficient sample balance. The answer is now implemented as tooling, not just advice.

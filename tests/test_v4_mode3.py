@@ -4,6 +4,7 @@ import time
 
 from v4.decision import (
     RouteContext,
+    decide_farm_loop,
     decide_mode3_navigation,
     is_22b,
     is_target_event,
@@ -33,6 +34,90 @@ def fake_v3(
         scroll_state=scroll_state or {},
         ocr_regions=ocr_regions or [],
     )
+
+
+def test_farm_loop_starts_race_only_when_focus_on_start():
+    start = decide_farm_loop(fake_v3("race_menu", selected_item="开始赛事"))
+    assert start.name == "farm_start_race" and normalize_button(start.button) == "a"
+    # Focus not on start -> WAIT, never DpadUp (in-race DpadUp opens Photo Mode).
+    wrong = decide_farm_loop(fake_v3("race_menu", selected_item="退出比赛"))
+    assert wrong.name == "farm_wait_race_menu_focus" and normalize_button(wrong.button) == ""
+
+
+def test_farm_loop_never_emits_dpad_up():
+    # DpadUp is unsafe in the farm loop (in-race == Photo Mode). No farm state
+    # should ever decide DpadUp.
+    screens = [
+        "race_menu", "prestart", "race_hud", "race_result", "post_race_next",
+        "race_pause_menu", "pause_story", "pause_menu", "controller_disconnected",
+        "loading_transition", "idle_showcase", "unknown",
+    ]
+    for screen in screens:
+        for graceful in (False, True):
+            d = decide_farm_loop(fake_v3(screen, selected_item="退出比赛"), graceful_exit=graceful)
+            assert normalize_button(d.button) != "dpad_up", f"{screen} emitted DpadUp"
+
+
+def test_farm_loop_holds_throttle_in_race_hud():
+    drive = decide_farm_loop(fake_v3("race_hud"))
+    assert drive.name == "race_drive_throttle"
+    assert normalize_button(drive.button) == ""
+
+
+def test_farm_loop_restart_vs_graceful_on_results():
+    restart = decide_farm_loop(fake_v3("race_result", selected_item="22B"), graceful_exit=False)
+    assert restart.name == "farm_restart_results" and normalize_button(restart.button) == "x"
+    graceful = decide_farm_loop(fake_v3("race_result"), graceful_exit=True)
+    assert graceful.name == "farm_graceful_exit_results" and normalize_button(graceful.button) == "a"
+
+
+def test_farm_loop_confirm_restart_modal_or_cancel_when_graceful():
+    confirm = decide_farm_loop(fake_v3("modal_warning", selected_item="确定要重新开始赛事吗"), graceful_exit=False)
+    assert confirm.name == "farm_confirm_restart" and normalize_button(confirm.button) == "a"
+    cancel = decide_farm_loop(fake_v3("modal_warning", selected_item="确定要重新开始赛事吗"), graceful_exit=True)
+    assert cancel.name == "farm_cancel_restart" and normalize_button(cancel.button) == "b"
+
+
+def test_farm_loop_post_race_is_terminal_only_when_graceful():
+    normal = decide_farm_loop(fake_v3("post_race_next"), graceful_exit=False)
+    assert normal.name == "farm_leave_post_race" and normalize_button(normal.button) == "b"
+    assert normal.terminal is False
+    assert decide_farm_loop(fake_v3("post_race_next"), graceful_exit=True).terminal is True
+
+
+def test_farm_loop_returns_b_from_pause_states():
+    assert normalize_button(decide_farm_loop(fake_v3("race_pause_menu", selected_item="世界地图")).button) == "b"
+    assert normalize_button(decide_farm_loop(fake_v3("pause_story", selected_item="世界地图")).button) == "b"
+
+
+def test_farm_loop_starts_race_even_when_start_menu_reads_as_pause_story():
+    # The EventLab race start menu sometimes mis-reads as pause_story; the
+    # focused tile text ("开始竞赛赛事") is the reliable signal to press A.
+    misread = decide_farm_loop(fake_v3("pause_story", selected_item="开始竞赛赛事"))
+    assert misread.name == "farm_start_race" and normalize_button(misread.button) == "a"
+    # but a normal pause (world-map focus) must still back out with B.
+    normal = decide_farm_loop(fake_v3("pause_story", selected_item="世界地图"))
+    assert normal.name == "farm_return_from_pause" and normalize_button(normal.button) == "b"
+
+
+def test_farm_loop_dismisses_controller_modal():
+    d = decide_farm_loop(fake_v3("controller_disconnected", selected_item="控制器未连接"))
+    assert d.name == "farm_dismiss_controller" and normalize_button(d.button) == "a"
+
+
+def test_farm_loop_waits_without_pressing_on_loading_and_unknown():
+    assert decide_farm_loop(fake_v3("loading_transition")).name == "farm_wait_loading"
+    assert normalize_button(decide_farm_loop(fake_v3("loading_transition")).button) == ""
+    assert decide_farm_loop(fake_v3("unknown")).name == "farm_wait_unknown"
+    assert normalize_button(decide_farm_loop(fake_v3("idle_showcase")).button) == ""
+
+
+def test_v4_runner_defaults_to_vision_farm_and_shares_recognizer():
+    runner = V4Mode3Runner(title="Forza")
+    assert runner._farm_mode == "vision"
+    assert runner.vision_farm_runner is not None
+    # share one recognizer instance so the ONNX model is not loaded twice
+    assert runner.vision_farm_runner.recognizer is runner.recognizer
 
 
 def test_button_mapping_accepts_v3_labels():
@@ -321,6 +406,7 @@ def test_farm_phase_watchdog_stops_stuck_smart_runner():
 
     runner = V4Mode3Runner.__new__(V4Mode3Runner)
     runner.smart_runner = FakeSmartRunner()
+    runner._farm_mode = "smart"
     runner.watchdog_seconds = 0.01
     runner._stop = threading.Event()
     runner.report = SimpleNamespace(errors=[])

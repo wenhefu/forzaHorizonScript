@@ -218,6 +218,18 @@ class HybridVisionRecognizer:
         v2_screen = getattr(v2_understanding, "screen", "unknown") or "unknown"
         v2_confidence = float(getattr(v2_understanding, "confidence", 0.0) or 0.0)
         best = max(detections, key=lambda item: item.confidence, default=None)
+        # Trust a confident V2 driving-HUD over any YOLO menu/focus detection.
+        # The V2 HUD rule keys off speedometer + progress + time (or speedometer
+        # + map location), which only appear while driving, so a YOLO
+        # race_menu/focus-box on such a frame is a false positive. Without this
+        # guard the model's over-eager race_menu detection made race_hud read as
+        # race_menu, which would make the farm loop press buttons mid-race.
+        if v2_screen in ("race_hud", "free_roam_hud") and v2_confidence >= 0.70:
+            return (
+                v2_screen,
+                v2_confidence,
+                f"V2 driving HUD {v2_screen} ({v2_confidence:.2f}) kept over YOLO {getattr(best, 'label', None)}",
+            )
         if best and best.source == "onnx-yolo" and best.confidence >= 0.55:
             screen = self._screen_from_detection(best.label, v2_screen)
             confidence = max(v2_confidence, min(0.97, best.confidence))
