@@ -772,3 +772,237 @@ def decide_farm_loop(v3: Any, graceful_exit: bool = False) -> V4Decision:
         "等待;若刚才在比赛中,执行器会保持油门避免赛中松油。",
         min(confidence, 0.55),
     )
+
+
+# --- Buy phase: vision-guided replacement for the V1 BuyCarRunner state machine ---
+
+SUBARU_KEYWORDS = ("斯巴鲁", "SUBARU")
+
+
+def looks_like_subaru(text: str) -> bool:
+    normalized = normalize_text(text)
+    return any(normalize_text(keyword) in normalized for keyword in SUBARU_KEYWORDS)
+
+
+@dataclass
+class BuyContext:
+    """Mutable facts learned while the vision buy phase runs.
+
+    ``purchase_armed`` is the key safety latch: the purchase-confirm/preview/
+    color/design steps only press A when 22B has been positively selected in the
+    grid, mirroring the V1 BuyCarRunner's "never buy an unconfirmed car" rule.
+    """
+
+    purchase_armed: bool = False
+    vehicle_scan_moves: int = 0
+    manufacturer_scan_moves: int = 0
+    pause_cars_moves: int = 0
+    mastery_runs: int = 0
+
+
+def decide_buy_loop(v3: Any, context: BuyContext | None = None) -> V4Decision:
+    """Choose the next buy/skill-point action from V3 hybrid recognition.
+
+    Mirrors the V1 BuyCarRunner flow (pause -> 车辆 -> 购买新车与二手车 -> 车展 ->
+    制造商/斯巴鲁 -> 22B -> 设计/颜色/预览 -> 购买确认 -> 加点 -> 技术点数用完) but
+    drives off the aspect-robust V3 screen + selected_item instead of fixed-
+    fraction OCR grid coordinates. Grid scanning and the fixed mastery sequence
+    are executed by the runner (they are stateful multi-step actions); this pure
+    function only emits the next single decision and the safety gates.
+    """
+    context = context or BuyContext()
+    screen = str(getattr(v3, "screen", "") or "unknown")
+    selected = str(getattr(v3, "selected_item", "") or "")
+    confidence = float(getattr(v3, "confidence", 0.0) or 0.0)
+
+    if screen == "skill_points_exhausted":
+        return V4Decision(
+            "buy_phase_done",
+            "",
+            "技术点数不足弹窗 = 买车加点阶段完成,交还上层去 EventLab 导航。",
+            "上层据此进入 EventLab 路线;不再在买车流程按键。",
+            max(confidence, 0.82),
+            terminal=True,
+        )
+
+    if screen == "controller_disconnected":
+        return V4Decision(
+            "buy_dismiss_controller",
+            "A",
+            "控制器未连接弹窗,按 A 让虚拟手柄重新接入。",
+            "按后必须重新识别,不再显示 controller_disconnected。",
+            max(confidence, 0.75),
+        )
+
+    # Purchase confirm: ONLY buy when 22B has been positively selected.
+    if screen == "purchase_confirm":
+        if context.purchase_armed:
+            return V4Decision(
+                "buy_confirm_purchase",
+                "A",
+                "购买确认弹窗,且已确认走的是 22B 路径,按 A 购买。",
+                "按后应进入新车展示页或车辆页。",
+                max(confidence, 0.82),
+            )
+        return V4Decision(
+            "buy_cancel_unconfirmed_purchase",
+            "B",
+            "购买确认弹窗,但还没确认选中 22B;按 B 取消,绝不误买。",
+            "按后回到选车/车展页,确认 22B 后再走购买。",
+            max(confidence, 0.80),
+        )
+
+    if screen == "vehicle_buy_grid":
+        if is_22b(selected):
+            return V4Decision(
+                "buy_select_22b",
+                "A",
+                "购买车辆网格中 22B 已是焦点,按 A 选择(并锁定购买路径)。",
+                "按后应进入设计/颜色/预览或购买确认。",
+                max(confidence, 0.84),
+            )
+        return V4Decision(
+            "buy_scan_vehicle_grid",
+            "DPadRight",
+            f"购买网格当前是 {selected or '未知'},不是 22B;右移逐格扫描。",
+            "按后必须重新识别选中车辆;只有 22B 成为焦点才允许 A。",
+            max(confidence, 0.62),
+        )
+
+    if screen == "manufacturer_grid":
+        if looks_like_subaru(selected):
+            return V4Decision(
+                "buy_enter_subaru",
+                "A",
+                "制造商列表已在斯巴鲁,按 A 进入斯巴鲁车展。",
+                "按后应进入车辆网格(斯巴鲁车系)。",
+                max(confidence, 0.80),
+            )
+        return V4Decision(
+            "buy_scan_manufacturer",
+            "DPadDown",
+            f"制造商列表当前是 {selected or '未知'},向下找斯巴鲁。",
+            "按后必须重新识别;到斯巴鲁再 A。",
+            max(confidence, 0.60),
+        )
+
+    if screen == "design_grid":
+        if context.purchase_armed:
+            return V4Decision(
+                "buy_design_to_color",
+                "Y",
+                "推荐设计页,按 Y 进入出厂颜色。",
+                "按后应进入 color_select。",
+                max(confidence, 0.72),
+            )
+        return V4Decision(
+            "buy_back_unconfirmed_design",
+            "B",
+            "推荐设计页但未确认 22B 路径,按 B 返回,避免误买。",
+            "按后回到选车页确认 22B。",
+            max(confidence, 0.74),
+        )
+
+    if screen == "color_select":
+        if context.purchase_armed:
+            return V4Decision(
+                "buy_color_confirm",
+                "A",
+                "出厂颜色页,按 A 确认默认颜色。",
+                "按后应进入 car_preview 或购买确认。",
+                max(confidence, 0.72),
+            )
+        return V4Decision(
+            "buy_back_unconfirmed_color",
+            "B",
+            "出厂颜色页但未确认 22B 路径,按 B 返回,避免误买。",
+            "按后回到选车页确认 22B。",
+            max(confidence, 0.74),
+        )
+
+    if screen == "car_preview":
+        if context.purchase_armed:
+            return V4Decision(
+                "buy_preview_advance",
+                "A",
+                "车辆预览页,按 A 进入购买确认。",
+                "按后应进入 purchase_confirm。",
+                max(confidence, 0.72),
+            )
+        return V4Decision(
+            "buy_back_unconfirmed_preview",
+            "B",
+            "车辆预览页但未确认选中 22B,按 B 返回,绝不购买当前车辆。",
+            "按后回到选车页确认 22B。",
+            max(confidence, 0.80),
+        )
+
+    if screen in ("autoshow_buy_sell", "autoshow_showroom"):
+        return V4Decision(
+            "buy_enter_showroom",
+            "A",
+            "购买与出售/车展页,按 A 进入车展网格。",
+            "按后应进入 vehicle_buy_grid 或 manufacturer_grid。",
+            max(confidence, 0.68),
+        )
+
+    if screen == "pause_vehicle_entry":
+        if "购买" in selected or "二手车" in selected:
+            return V4Decision(
+                "buy_enter_purchase_menu",
+                "A",
+                "车辆页焦点在购买新车与二手车,按 A 进入。",
+                "按后应进入购买与出售/车展页。",
+                max(confidence, 0.78),
+            )
+        return V4Decision(
+            "buy_move_to_purchase_menu",
+            "DPadLeft",
+            f"车辆页当前焦点是 {selected or '未知'},左移找购买新车与二手车。",
+            "按后必须重新识别焦点;焦点=购买新车与二手车再 A。",
+            max(confidence, 0.60),
+        )
+
+    if screen == "vehicle_mastery":
+        return V4Decision(
+            "buy_spend_mastery",
+            "",
+            "车辆熟练度页:由执行器跑固定加点序列,直到技术点数不足。",
+            "执行器跑完序列后必须重新识别;出现技术点数不足弹窗 = 完成。",
+            max(confidence, 0.70),
+        )
+
+    if screen == "post_purchase_view":
+        return V4Decision(
+            "buy_leave_post_purchase",
+            "B",
+            "新车展示页,按 B 返回去加点/继续。",
+            "按后应进入车辆页或购买与出售页。",
+            max(confidence, 0.72),
+        )
+
+    if screen.startswith("pause_") or screen == "pause_menu":
+        return V4Decision(
+            "buy_pause_to_vehicle",
+            "RB",
+            "暂停菜单,按 RB 切到车辆页准备买车。",
+            "按后应进入 pause_vehicle_entry。",
+            max(confidence, 0.62),
+        )
+
+    if screen == "loading_transition":
+        return V4Decision(
+            "buy_wait_loading",
+            "",
+            "过场/加载帧,等待下一帧。",
+            "等待重新识别到明确页面。",
+            confidence,
+        )
+
+    return V4Decision(
+        "buy_wait_unknown",
+        "",
+        f"买车阶段暂时不能识别页面 {screen};等待重新识别。",
+        "等待;不确定时不按键,避免误买。",
+        min(confidence, 0.55),
+    )

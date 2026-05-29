@@ -3,7 +3,9 @@ import threading
 import time
 
 from v4.decision import (
+    BuyContext,
     RouteContext,
+    decide_buy_loop,
     decide_farm_loop,
     decide_mode3_navigation,
     is_22b,
@@ -118,6 +120,40 @@ def test_v4_runner_defaults_to_vision_farm_and_shares_recognizer():
     assert runner.vision_farm_runner is not None
     # share one recognizer instance so the ONNX model is not loaded twice
     assert runner.vision_farm_runner.recognizer is runner.recognizer
+
+
+def test_buy_loop_terminal_on_skill_points_exhausted():
+    d = decide_buy_loop(fake_v3("skill_points_exhausted", selected_item="不够购买额外加成"))
+    assert d.name == "buy_phase_done" and d.terminal is True
+    assert normalize_button(d.button) == ""
+
+
+def test_buy_loop_never_confirms_purchase_unless_22b_armed():
+    unarmed = decide_buy_loop(fake_v3("purchase_confirm", selected_item="购买车辆"), BuyContext(purchase_armed=False))
+    assert unarmed.name == "buy_cancel_unconfirmed_purchase" and normalize_button(unarmed.button) == "b"
+    armed = decide_buy_loop(fake_v3("purchase_confirm", selected_item="购买车辆"), BuyContext(purchase_armed=True))
+    assert armed.name == "buy_confirm_purchase" and normalize_button(armed.button) == "a"
+
+
+def test_buy_loop_backs_out_of_preview_color_design_when_unarmed():
+    # Safety: never advance a purchase from preview/color/design unless 22B armed.
+    for screen in ("car_preview", "color_select", "design_grid"):
+        d = decide_buy_loop(fake_v3(screen, selected_item="IMPREZA 22B-STI VERSION"), BuyContext(purchase_armed=False))
+        assert normalize_button(d.button) == "b", f"{screen} must back out when unarmed"
+
+
+def test_buy_loop_selects_22b_else_scans():
+    on22b = decide_buy_loop(fake_v3("vehicle_buy_grid", selected_item="IMPREZA 22B-STI VERSION"))
+    assert on22b.name == "buy_select_22b" and normalize_button(on22b.button) == "a"
+    other = decide_buy_loop(fake_v3("vehicle_buy_grid", selected_item="BRZ"))
+    assert other.name == "buy_scan_vehicle_grid" and normalize_button(other.button) == "dpad_right"
+
+
+def test_buy_loop_manufacturer_and_vehicle_entry():
+    sub = decide_buy_loop(fake_v3("manufacturer_grid", selected_item="斯巴鲁"))
+    assert sub.name == "buy_enter_subaru" and normalize_button(sub.button) == "a"
+    entry = decide_buy_loop(fake_v3("pause_vehicle_entry", selected_item="购买新车与二手车"))
+    assert entry.name == "buy_enter_purchase_menu" and normalize_button(entry.button) == "a"
 
 
 def test_button_mapping_accepts_v3_labels():

@@ -1,5 +1,18 @@
 # Handoff - Forza Horizon 6 Helper
 
+## 2026-05-30 hotfix 19 - Vision buy-phase decision foundation + full mode-three x2 live findings
+
+Full mode-three x2 live run (`run_mode3_x2.py`, farm 3min/round, watchdog 180s):
+- Round 1: `buy_phase_failed`. The game started on the post-race `race_result` page (not free roam) AND was not foreground (the foreground window was '游戏用户界面', all SetForegroundWindow activations failed), so the V1 BuyCarRunner sat on the results page (state=unknown) and the buy watchdog stopped it after 3 min -- the requested 3-minute stall guard worked.
+- Round 2: `completed`, farm_laps=7, race_hud_frames=44. The vision farm loop ran the full clean cycle and the `_exit_after_farm` race_result->A fix worked ("已回到可安全交还的菜单"). Genuine farming re-confirmed.
+- Neither round actually bought a car (round 1 stuck, round 2 skipped buy because the game was already in the race area). The vision FARM is solid; the V1 BUY phase is the weak link (brittle, needs a free-roam start + foreground).
+
+Buy-flow recognition assessment (real samples): the V3 hybrid reliably IDs the buy screens despite low YOLO sample counts (V2 rules + OCR carry them): `vehicle_buy_grid` 8/8 (reads 'IMPREZA 22B-STI VERSION'), `manufacturer_grid` 7/8, `purchase_confirm` 4/4, `vehicle_mastery` 8/8, `skill_points_exhausted` 1/1, `car_preview` 6/6, `color_select` 4/4, `pause_vehicle_entry` 8/8. So a vision buy is feasible, and the hybrid's direct 22B-name read enables a "scan until 22B selected" approach (cleaner than V1's OCR grid coordinates).
+
+New: `v4/decision.py` `decide_buy_loop(v3, BuyContext)` -- vision buy decision foundation mirroring BuyCarRunner (pause->车辆->购买新车与二手车->车展->制造商/斯巴鲁->22B->设计/颜色/预览->购买确认->加点->技术点数用完), with V1's safety gates: never press A on purchase-confirm/preview/color/design unless `context.purchase_armed` (22B positively selected), terminal on `skill_points_exhausted`. Added `BuyContext`, `looks_like_subaru`. 5 new tests incl. the never-buy-unconfirmed gate. 116 tests pass.
+
+NOT done (next, and the harder half): the vision buy RUNNER. The grid scan (scan vehicle/manufacturer grids until 22B/Subaru is selected, with rollback) and the skill-mastery spend (V1 uses a fixed 11-step "wheelspin" sequence: A->right->A->up->A->up->A->up->A->left->A, then watch for the exhausted modal) are stateful multi-step actions that must live in the runner, plus wiring `--buy-mode vision` into mode3_runner. This needs supervised live iteration (it spends CR and has many steps) -- best nailed on 16:9 first, then ultrawide (which still needs the friend's real samples). The V1 buy still works on 16:9 as the fallback.
+
 ## 2026-05-30 hotfix 18 - Vision farm loop: live-smoke fixes (start-on-empty-focus, controller keyboard recovery)
 
 Continuation of hotfix 17. Ran four live smokes of the vision farm loop (`--skip-buy --farm-mode vision`); each surfaced and fixed one edge case. Only `v4/farm_runner.py` changed here (plus this doc).
