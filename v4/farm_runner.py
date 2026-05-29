@@ -68,6 +68,7 @@ class VisionFarmRunner:
         self._graceful = threading.Event()
         self.exit_reason: str | None = None
         self.laps = 0
+        self.race_hud_seen = 0
 
     # -- lifecycle ---------------------------------------------------------
     def is_running(self) -> bool:
@@ -178,6 +179,7 @@ class VisionFarmRunner:
 
         self.exit_reason = None
         self.laps = 0
+        self.race_hud_seen = 0
         if startup_delay > 0 and not self._sleep(startup_delay):
             pad.neutral()
             return
@@ -293,6 +295,7 @@ class VisionFarmRunner:
                 # 1) Active race: hold throttle (state persists between cycles).
                 if name == "race_drive_throttle":
                     in_race = True
+                    self.race_hud_seen += 1
                     if race_started is None:
                         race_started = time.monotonic()
                     unknown_throttle_since = None
@@ -380,4 +383,13 @@ class VisionFarmRunner:
                 pad.neutral()
             except Exception:
                 pass
+            if self.laps > 0 and self.race_hud_seen == 0:
+                self.on_log(
+                    f"⚠ 视觉刷图核查：本轮起赛/重开 {self.laps} 次，但一帧驾驶画面(race_hud)都没识别到 —— "
+                    "很可能没有真正跑赛(疑似对误判成结算页的画面反复按 X)，请核实是否真在刷分。"
+                )
+            else:
+                self.on_log(
+                    f"视觉刷图核查：本轮起赛/重开 {self.laps} 次，识别到驾驶画面 {self.race_hud_seen} 帧。"
+                )
             self.on_log("视觉刷图已停止，手柄保持连接并已回正。")
