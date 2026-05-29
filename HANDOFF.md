@@ -1,5 +1,954 @@
 # Handoff - Forza Horizon 6 Helper
 
+## 2026-05-29 hotfix 14 - Full V4 mode-three run completed
+
+This pass finished the requested V4 validation using the current V3/V4 recognition stack and the packaged executable. V1 stable runner files were not edited.
+
+Changes:
+- `v4/decision.py`: recognizes the EventLab entry label `游玩赛事`, recognizes the `重新开始赛事` confirmation modal, and treats that modal as a verified one-shot `A` confirmation instead of an unknown modal.
+- `v4/mode3_runner.py`: buy preflight can hand off directly when a restart-event modal is already visible; Smart/V3 disagreement on the prestart menu is accepted when V3 says `pause_story` and the selected item contains `开始...赛事/竞赛`.
+- `v4/mode3_runner.py`: post-farm cleanup now accepts `race_menu` and `race_pause_menu` as safe handoff states, in addition to ordinary `pause_*` pages. This fixes the previous false failure where V4 had already returned to the EventLab start menu but still reported `exit_after_farm_failed`.
+- `tests/test_v4_mode3.py`: added regressions for restart-event modal handoff, prestart menu confirmation, extended post-farm verification, and accepting `race_menu` as a safe handoff.
+
+Verification:
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+# 97 passed, 22 skipped
+
+.\build_v4.bat
+# V4 build complete: dist\Forza6HelperV4.exe
+
+dist\Forza6HelperV4.exe --title Forza --farm-seconds 60 --watchdog-seconds 120
+# reports\v4_mode3_latest.json: completed=true, stopped_reason=completed
+```
+
+Runtime evidence:
+- Latest successful run: `reports\v4_run_20260529-154344.err.log` / `reports\v4_mode3_latest.json`.
+- Start: normal pause/story page with controller modal recovery.
+- Buy phase: entered vehicle page, moved to festival, opened autoshow, selected Subaru/22B, confirmed purchase, returned through upgrade/mastery flow, and stopped the V1 buy phase at the known `不够购买额外加成` dialog.
+- V4 navigation: closed the skill-points dialog, backed out to free roam, opened pause, reached the EventLab start/race menu, and handed off to V1 `SmartRunner`.
+- Farm phase: `SmartRunner` ran for the requested 60 seconds. It did not self-finish within the extra 120 second grace window, so the V4 farm watchdog stopped it, neutralized the pad, and continued cleanup. This is the intended anti-stall behavior requested for two-minute stalls.
+- Cleanup: V4 recognized `free_roam_hud`, pressed `Start/Menu`, recognized `pause_story`, and completed the run. The final report contains `completed: true` and `stopped_reason: completed`; it also records the watchdog intervention as `farm_watchdog_stop after 180.1s`.
+- No `Forza6HelperV4.exe` helper process remained after the run.
+
+Current residual risk:
+- `reports\v4_mode3_latest.json` still records the farm watchdog intervention as an error entry even though the overall run completed. That is useful evidence but may look scary in the GUI/report; a future polish pass can rename it to a warning when cleanup succeeds.
+- The latest run spent another 86,000 CR by buying an additional 22B, as expected for a true mode-three buy phase test.
+
+## 2026-05-29 hotfix 13 - Race pause lock-state, checkbox evidence, and buy watchdog
+
+User pointed out that locked Creative Hub/Vehicle tiles mean the game is still inside an active race/activity pause menu. Treating that frame as normal `eventlab_home` is wrong, because it can lead to pressing `A` on locked EventLab/garage-layout cards.
+
+Changes:
+- `v3/hybrid.py`: added a visual `race_pause_menu` fallback. It detects the locked/dimmed pause-menu layout from top pause tabs, low-brightness locked tiles, and a lime focus rectangle, even when OCR is unavailable or OCR says `eventlab_home`.
+- `v3/ui_tree.py`: added `race_pause_menu` as a first-class UI node. The safe path is `B` back to the current race; switching to the story tab is only for an explicit return/quit-race inspection path.
+- `v4/decision.py`: `race_pause_menu` maps to `resume_from_race_pause_menu` with `B`, and verification requires `race_hud`, `race_menu`, `idle_showcase`, or another explicit game state.
+- `v3/buying_ui.py` and `v3/types.py`: checkbox output now includes direct evidence from the small square and prints `未勾选（空框）` vs `已勾选（有白色对勾）`.
+- `v3/gui_v3.py`: the summary line and preview overlay now show the favorite-filter checkbox state more visibly.
+- `v4/mode3_runner.py`: buy phase supervision now records semantic screenshots, closes a stable `world_map` once with `B`, restarts BuyCarRunner once, and can hand off to V4 navigation if BuyCarRunner has already reached an EventLab/race-route page.
+- `v4/mode3_runner.py`: buy phase preflight now skips BuyCarRunner entirely when V4 starts from `race_hud`, `race_pause_menu`, or an EventLab/race-route page, so restarting V4 mid-race cannot accidentally begin the buy-car loop.
+- `v4/mode3_runner.py`: if buy preflight is covered by a controller-disconnected modal, V4 dismisses it with one normal `A`, captures again, and still refuses to start BuyCarRunner when the cleared state is already a race/prestart route.
+
+Verification:
+```powershell
+python -m pytest -q
+# 81 passed, 22 skipped
+
+.\.venv\Scripts\python.exe -  # replayed reports/current_probe.png with real RapidOCR
+# ocr 32 [...]
+# race_pause_menu 赛事暂停 EventLab B 返回当前比赛
+
+.\build_v4.bat
+# V4 build complete: dist\Forza6HelperV4.exe
+```
+
+Runtime observation:
+- A packaged short run before the final visual-precedence fix safely recovered from the locked EventLab mistake by closing `功能尚未解锁` and returning to `race_hud`, but it proved the pre-click classification was too late. The replay after the fix classifies the same locked pause frame as `race_pause_menu` before any `A`.
+- Final packaged short run on 2026-05-29 11:04: `dist\Forza6HelperV4.exe --title Forza --skip-farm --auto-focus --watchdog-seconds 20` dismissed the controller modal, recognized `smart=racing`, skipped BuyCarRunner, and completed without starting farm.
+- Final packaged short-farm run on 2026-05-29 11:05: `dist\Forza6HelperV4.exe --title Forza --farm-seconds 2 --watchdog-seconds 4 --auto-focus --no-exit-after-farm` dismissed the controller modal, skipped BuyCarRunner, handed to SmartRunner, and the farm watchdog stopped SmartRunner after the short target window. `reports\v4_mode3_latest.json` records the expected `farm_watchdog_stop`.
+- Current rebuilt exe: `dist\Forza6HelperV4.exe`, timestamp `2026-05-29 11:02`.
+- No `Forza6HelperV4.exe` helper process remains running after the latest checks.
+- V1 stable main-flow files were not intentionally edited.
+
+## 2026-05-29 hotfix 12 - Checkbox truth, locked-modal A close, and farm watchdog
+
+User asked whether the EventLab filter `收藏` box is actually checked. The correct visual rule is:
+
+- empty small square on the right = not checked
+- square with a white check/tick stroke = checked
+
+Changes:
+- `v3/buying_ui.py`: checkbox detection now reads the small square itself and requires an interior tick-shaped signal. OCR text and the focused row are not enough to mark `收藏` as checked.
+- `v4/decision.py`: known locked/unavailable modals now close with `A` because the observed modal is an OK/confirm prompt. V4 then records `locked_feature_seen`, backs out once, and refuses to re-enter the same locked EventLab entry loop.
+- `v4/mode3_runner.py`: V1 `SmartRunner` farm handoff now has its own V4 watchdog. After `farm_seconds` is reached, V4 waits at most `watchdog_seconds`; if SmartRunner still has not exited, V4 calls `stop()`, joins briefly, records `farm_watchdog_stop`, neutralizes the pad, and exits instead of hanging in the background.
+- `v4/mode3_runner.py`: V1 `STATE_RACING` is accepted as a terminal EventLab handoff state, because the race detector can already be in-race when V4 resumes from a loading/idle state.
+- `tests/test_v4_mode3.py`: added regression coverage for the farm watchdog stop path.
+
+Verification:
+```powershell
+python -m pytest tests\test_v3_vision.py::test_eventlab_filter_state_reads_favorite_checkbox tests\test_v3_vision.py::test_checkbox_detection_ignores_empty_border_and_requires_tick tests\test_v4_mode3.py -q
+# 16 passed
+
+python -m pytest -q
+# 74 passed, 22 skipped
+
+.\build_v4.bat
+# V4 build complete: dist\Forza6HelperV4.exe
+
+dist\Forza6HelperV4.exe --title Forza --skip-buy --skip-farm --auto-focus --watchdog-seconds 20
+# completed; dismissed controller-disconnected prompt twice, then reached racing/world-map handoff
+
+dist\Forza6HelperV4.exe --title Forza --skip-buy --farm-seconds 2 --auto-focus --watchdog-seconds 4 --no-exit-after-farm
+# completed; farm watchdog stopped SmartRunner after target+4s and no Forza6HelperV4.exe process remained
+```
+
+Current status:
+- `dist\Forza6HelperV4.exe` is rebuilt at `2026-05-29 08:44`.
+- Latest report: `reports\v4_mode3_latest.json`.
+- No V1 stable main-flow file was intentionally edited.
+- Full real mode-three run is still not certified end-to-end; current validated path is route handoff plus short farm watchdog behavior. The game was not left with a helper process running.
+
+## 2026-05-29 V4 - Vision-guided mode-three runner draft
+
+User requested a complete V4 that uses the current V3 recognition layer to run V1 mode 3, with a two-minute anti-stall guard: if V4 cannot recognize progress and would get stuck, it must stop/recover safely instead of blindly pressing.
+
+Changes:
+- Added `v4/` as an independent package; V1 stable files are not edited.
+- `v4/recognizer.py`: wraps window capture, OCR, V3 HybridVisionRecognizer, and V1 race detector into one `V4Snapshot`.
+- `v4/decision.py`: pure decision layer for mode-three navigation. It explicitly separates EventLab top-tab navigation from `Y` favorite toggling, and gates EventLab car selection on 22B.
+- `v4/watchdog.py`: semantic progress watchdog. Default timeout is 120 seconds, with limited recovery attempts.
+- `v4/mode3_runner.py`: executable runner. It reuses V1 `BuyCarRunner` for buy/skill phase and V1 `SmartRunner` for farming, but the EventLab route is V3-guided and one-button-then-verify.
+- Added `v4_launcher.py`, `README_V4.md`, `Forza6HelperV4.spec`, and `build_v4.bat`.
+- Added `tests/test_v4_mode3.py` for button mapping, EventLab top-nav safety, favorite checkbox action gating, 22B gating, and watchdog behavior.
+
+Current V4 safety rules:
+- EventLab event list: `Y` is never used as navigation; only LB/RB can move toward `我的收藏`.
+- Event selection: press `A` only when selected title matches `SP Farm / 24 second race = 10 skillpoints`.
+- Vehicle filter: press `A` only when `收藏` is focused and checkbox is visibly unchecked; if checked, press `B`.
+- Vehicle selection: press `A` only when selected car is `IMPREZA 22B-STI VERSION` / 22B.
+- Unknown modal: do not press `A` unless text/button semantics are known.
+- Default foreground policy: no KeepActive/fake-focus. If Forza is not foreground, V4 stops unless explicitly run with `--auto-focus` or `--allow-background`.
+
+Verification so far:
+```powershell
+python -m py_compile v4\__init__.py v4\decision.py v4\watchdog.py v4\recognizer.py v4\mode3_runner.py v4_launcher.py
+# passed
+
+python -m pytest tests/test_v2_semantic.py tests/test_v3_vision.py tests/test_v4_mode3.py -q
+# 61 passed, 22 skipped
+
+python -m pytest tests/test_v4_mode3.py tests/test_v3_vision.py -q
+# 44 passed
+```
+
+Latest smoke observation:
+- `reports\v4_recognizer_smoke_latest.json` was written.
+- Current window smoke recognized V3 `idle_showcase` while V1 race detector reported `controller_disconnected`; V4 now prioritizes the V1 controller-disconnected signal for a single verified `A` recovery when V3 is otherwise idle/unknown/loading/modal.
+
+Next required step for this goal:
+1. Run the latest rebuilt `dist\Forza6HelperV4.exe` through a controlled V4 route/farm validation after the checkbox and locked-modal hotfix below.
+2. Then run the full V4 mode-three cycle. Do not mark the goal complete until the full run is actually verified or the run stops with a concrete V4 attention report.
+
+## 2026-05-29 hotfix 11 - V4 filter checkbox and locked modal recovery
+
+User showed that the EventLab filter page still felt unreliable: the empty `收藏` checkbox and checked `收藏` checkbox need to be read from the small square itself, not inferred from OCR text. User also previously hit a `功能尚未解锁` modal during V4 navigation; stopping was safe, but V4 should close that known non-destructive modal with `B` instead of waiting forever.
+
+Changes:
+- `v3/buying_ui.py`: tightened `_checkbox_is_checked` again. It now uses a neutral-light mask, locates the checkbox square, strips the outer border, and requires a real interior checkmark-shaped signal. Empty white borders should no longer count as checked.
+- `v4/decision.py`: `eventlab_home` no longer presses `A` if V2 still thinks the active pause tab is something like `在线`; it waits for a confirmed EventLab focus instead.
+- `v4/decision.py`: known locked/unavailable modal text such as `功能尚未解锁` now maps to a safe `B` close action, with verification back to the previous page.
+- `tests/test_v4_mode3.py`: added coverage for EventLab-home tab mismatch and locked-modal close behavior.
+- Rebuilt `dist\Forza6HelperV4.exe`.
+
+Verification:
+```powershell
+python -m pytest tests/test_v3_vision.py::test_eventlab_filter_state_reads_favorite_checkbox tests/test_v3_vision.py::test_checkbox_detection_ignores_empty_border_and_requires_tick tests/test_v4_mode3.py -q
+# 12 passed
+
+python -m pytest -q
+# 70 passed, 22 skipped
+
+.\build_v4.bat
+# V4 build complete: dist\Forza6HelperV4.exe
+
+dist\Forza6HelperV4.exe --help
+# CLI help printed successfully
+```
+
+## 2026-05-29 hotfix 10 - EventLab filter checkbox checkmark detection
+
+User showed two EventLab filter screenshots where the focused `收藏` checkbox was visually empty vs checked, but Vision still reported `收藏=已勾选` in both cases. Root cause: `_checkbox_is_checked` treated any white pixels near the center crop as a checkmark, so a slightly shifted crop could count the empty checkbox border as checked.
+
+Changes:
+- `v3/buying_ui.py`: `_checkbox_is_checked` now expands the approximate checkbox area, locates the near-square white checkbox component, removes the outer border, then checks for enough white pixels in the interior checkmark area.
+- `v3/buying_ui.py`: added small geometry helpers for checkbox crop expansion and component localization.
+- `tests/test_v3_vision.py`: added a direct regression test proving an empty white checkbox border is `False`, while the same checkbox with a tick stroke is `True`.
+
+Verification:
+```powershell
+python -m pytest tests/test_v3_vision.py tests/test_v2_semantic.py -q
+# 54 passed, 22 skipped
+
+python -m pytest -q
+# 60 passed, 22 skipped
+
+python -m compileall v2 v3 -q
+# passed
+```
+
+Expected runtime behavior:
+- Empty `收藏` checkbox: `筛选状态: 焦点=收藏 收藏=未勾选`, action recommendation should be one `A` to toggle it.
+- Checked `收藏` checkbox: `筛选状态: 焦点=收藏 收藏=已勾选`, action recommendation should be `B` to return; do not press `A` again.
+
+## 2026-05-29 hotfix 9 - EventLab top-nav focus and safe tab navigation
+
+User pointed out that the EventLab event-list page must pay attention to the top navigation bar, not only the selected event card. Without the active tab, the recognizer cannot know whether the next safe step is to move LB/RB toward `我的收藏`, wait, or select the current card.
+
+Changes:
+- `v2/semantic.py`: EventLab tab OCR scan now covers the real top-nav band (`0.07..0.26` content-relative y). This catches tabs such as `热门`, `最新最热`, `最爱的创作者`, and `我的收藏` in the event-list layout.
+- `v2/semantic.py`: when OCR returns repeated tab labels, tab candidates now choose by visual active state first: black active-tab background plus yellow/green underline beats plain OCR confidence.
+- `v3/hybrid.py`: EventLab event-list actions now use `active_tab` and visible tab positions. If the current tab is not `我的收藏`, the recommendation becomes one verified `LB`/`RB` step toward `我的收藏`; `Y` is explicitly treated only as "toggle current event favorite", not as navigation.
+- `v3/hybrid.py`: if the active EventLab tab is unknown, actions stay at "do not press" until the top nav is recognized.
+- `v3/focus_regions.py`: added a pure-numpy focus-box fallback when `cv2` is unavailable, so yellow/green focus detection still works on machines with a thinner Python/OpenCV install.
+- `tests/test_v2_semantic.py`: added a regression test for repeated `热门` OCR where only the visually active tab should win.
+- `tests/test_v3_vision.py`: added a regression test that EventLab list recommendations prefer top-nav `RB/LB` before card selection when not already on `我的收藏`.
+
+Verification:
+```powershell
+python -m pytest -q
+# 59 passed, 22 skipped
+
+python -m compileall v2 v3 -q
+# passed
+
+.\.venv\Scripts\python.exe benchmarks\benchmark_v3_vision.py --model v3\models\forza_ui_yolo.onnx --scales 1.0 --raw-root datasets\forza_ui\raw --raw-max 80 --output-dir reports
+# reports\vision_benchmark_20260529-065319.md
+# Raw YOLO label recall=0.963, Raw Hybrid label recall=1.000, Raw Hybrid mean=59.57 ms
+
+.\.venv\Scripts\python.exe -m v3.runtime_selftest --output reports\vision_runtime_selftest_nav_tabs_source.json
+# ok=true, provider=CPUExecutionProvider
+
+.\build_vision.bat
+# rebuilt dist\Forza6HelperVision.exe, size=117723762 bytes
+
+Start-Process -FilePath .\dist\Forza6HelperVision.exe -ArgumentList @('--self-test','--output','reports\vision_runtime_selftest_packaged_nav_tabs.json') -Wait
+# ok=true, provider=CPUExecutionProvider
+```
+
+Current runtime state:
+- `dist\Forza6HelperVision.exe` was rebuilt and relaunched.
+- `reports\gamepad_bridge_status.json` still says `"running": false`; no live game input was resumed during this hotfix.
+- On the user's current EventLab event-list screenshot, the expected improved behavior is: `分页` should resolve to the black active top tab such as `热门`; if the target event is not selected and the active tab is not `我的收藏`, action advice should be a single verified `LB` or `RB` navigation step rather than `A` or `Y`.
+
+## 2026-05-29 hotfix 8 - Mode-three path audit, EventLab target title, and favorite-filter safety
+
+User asked to stop treating EventLab `Y` as a navigation action and to model the real mode-three path more strictly: EventLab event selection must target the known favorite `SP Farm / 24 second race = 10 skillpoints`; EventLab car selection must use the 22B; the car filter popup must press `A` on `收藏` only when the checkbox is not already checked, then press `B` after the checkmark is visible.
+
+Mode-three/V1 flow read from code:
+- Mode 1 is `SmartRunner` EventLab farming.
+- Mode 2 is `BuyCarRunner` 22B buying + skill-mastery spending.
+- Mode 3 is `ComboRunner`: buy/spend points until `skill_points_exhausted`, then back out to free roam/pause, enter Creative Hub -> EventLab -> favorite event -> single player -> my cars -> favorite filter -> 22B -> race menu, then hand off to mode 1.
+
+Live/manual flow coverage this pass:
+- Bought-path samples: `vehicle_buy_grid`, `design_grid`, `color_select`, `car_preview`, `purchase_confirm`, post-purchase `idle_showcase`/`loading_transition`.
+- Mastery-path samples: `pause_vehicle_entry`, `vehicle_mastery`, `skill_points_exhausted`.
+- EventLab-path samples: `eventlab_home`, `eventlab_events`, `eventlab_favorites`, `eventlab_race_type`, `eventlab_my_cars`, and `race_menu`.
+- Important captured examples include:
+  - `datasets\forza_ui\raw\20260529-054934-329_eventlab_favorites_eventlab`
+  - `datasets\forza_ui\raw\20260529-054423-097_eventlab_my_cars_IMPREZA-22B-STI-VERSION`
+  - `datasets\forza_ui\raw\20260529-054533-683_pause_story_sample` (now covered as pre-race `race_menu`)
+  - `datasets\forza_ui\raw\20260529-050856-427_modal_warning_sample` (skill points exhausted modal)
+
+Changes:
+- `v3/buying_ui.py`: added EventLab event-card title extraction. The selected favorite card now resolves to titles such as `SP Farm / 24 second race = 10 skillpoints` instead of generic `eventlab`.
+- `v3/buying_ui.py`: added visual `eventlab_filter` checkbox-state reading for the focused `收藏` row.
+- `v3/buying_ui.py`: expanded bottom hint parsing for `创建者信息`, `赛事选项`, and `查看赛事信息`.
+- `v3/hybrid.py`: EventLab event-list actions now refuse `A` unless the selected title matches the target SP Farm skill-point event. It explicitly notes that `Y` only toggles the current event favorite state.
+- `v3/hybrid.py`: EventLab my-cars actions now refuse `A` unless the selected vehicle is `IMPREZA 22B-STI VERSION`.
+- `v3/hybrid.py` and `v3/types.py`: output `filter_state`; GUI text can show `筛选状态: 焦点=收藏 收藏=已勾选/未勾选`.
+- `v2/semantic.py` and `v3/ui_tree.py`: EventLab tab order expanded to `精选 / 热门 / 本月最佳 / 最新最热 / 全新 / 最爱的创作者 / 我的收藏 / 我的历史记录`; `eventlab_favorites` defaults active tab to `我的收藏` when tab OCR is weak.
+- `tests/test_v3_vision.py`: regression tests for EventLab title extraction, favorite checkbox state, safe filter actions, target-event gating, and target-22B gating.
+
+Operational caution:
+- After the user corrected the mistaken `Y` behavior, the virtual gamepad bridge was stopped. `reports\gamepad_bridge_status.json` currently says `"running": false`.
+- Do not resume live game input from this state unless explicitly requested. The recognition layer and docs can be worked safely from saved samples and user-provided screenshots.
+
+Verification:
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+# 57 passed, 22 skipped
+
+.\.venv\Scripts\python.exe -m v3.dataset --no-augment
+# raw_samples=993, images=993, labeled_images=775
+
+.\.venv\Scripts\python.exe benchmarks\benchmark_v3_vision.py --model v3\models\forza_ui_yolo.onnx --scales 1.0 --raw-root datasets\forza_ui\raw --raw-max 80 --output-dir reports
+# reports\vision_benchmark_20260529-062121.md
+# Raw YOLO label recall=0.963, Raw Hybrid label recall=1.000, Raw Hybrid mean=54.15 ms
+
+.\build_vision.bat
+# rebuilt dist\Forza6HelperVision.exe, size=117721098 bytes
+
+Start-Process -FilePath .\dist\Forza6HelperVision.exe -ArgumentList @('--self-test','--output','reports\vision_runtime_selftest_packaged_eventlab_filter.json') -Wait
+# ok=true, provider=CPUExecutionProvider
+```
+
+Remaining risk / next samples:
+- No local raw sample yet contains the EventLab filter popup with `收藏` unchecked and checked from the current run. The checkbox detector is covered by synthetic regression tests and V1 already had a pixel heuristic, but real samples should be collected before connecting this decision to any runner.
+- Vehicle mastery node names are still incomplete for some selected skill nodes; OCR may see blank node areas. Keep using page structure + post-press verification rather than relying on every node title.
+- Do not wire these V3 target-action rules back into V1 stable runner yet. They are good as Vision recommendations and as a future replacement for the brittle V1 mode-three detection.
+
+## 2026-05-29 hotfix 7 - Buy-vehicle grid, manufacturer list, button hints, and sampler
+
+User asked to strengthen the complex buy-car page: bottom button hints must be recognized, the right-side manufacturer scrollbar matters, the UI tree should separate `暂停菜单 -> 车辆 -> 购买新车与二手车` from EventLab car selection, and samples should cover different vehicle/manufacturer focus states without buying.
+
+Changes:
+- `v3/buying_ui.py`: new parser for buy-car bottom controls, manufacturer name coverage, vehicle-name canonicalization, and manufacturer scroll-state inference.
+- `v2/semantic.py`: added `vehicle_buy_grid` and `manufacturer_grid`. The manufacturer page now requires the upper/title area to actually say `制造商`, preventing the vehicle grid's bottom `前往制造商` hint from being misread as the manufacturer list.
+- `v3/hybrid.py`: outputs structured `control_hints` and `scroll_state`, reads `manufacturer_focus` / `vehicle_grid_focus` OCR regions, keeps `my_cars_card_focus` as the YOLO card signal, and maps the 22B card to `IMPREZA 22B-STI VERSION`.
+- `v3/ui_tree.py`: added `autoshow_showroom`, `vehicle_buy_grid`, and `manufacturer_grid` nodes under `暂停菜单 > 暂停菜单 / 车辆 > 购买与出售`.
+- `v3/vehicle_grid_sampler.py`: new safe sampler for vehicle grids and manufacturer lists. It defaults to vgamepad, has a keyboard mode for pages showing keyboard hints, can click the Forza title bar as a real foreground action, and never presses A to buy. A/Enter is only allowed for the narrow `控制器未连接` dismissal case.
+- `v3/sample_collector.py` and `v3/gui_v3.py`: raw metadata can now include extra V3 understanding data when saving samples.
+- `tests/test_v3_vision.py`: added regression coverage for vehicle-buy grid vs autoshow, manufacturer grid naming, bottom control parsing, and UI-tree nodes.
+
+Live sampling:
+```powershell
+.\.venv\Scripts\python.exe -m v3.vehicle_grid_sampler --title Forza --input-mode keyboard --click-titlebar --max-steps 14 --settle 0.85
+# saved 15 samples, including vehicle grid with selected IMPREZA 22B-STI VERSION and manufacturer focus states:
+# PLYMOUTH, PENHALL, RADICAL, RJ ANDERSON, TVR, SRT, SIERRA CARS, ZENVO, etc.
+
+.\.venv\Scripts\python.exe -m v3.vehicle_grid_sampler --title Forza --input-mode keyboard --click-titlebar --no-open-manufacturer --sequence dpad_down,dpad_down,dpad_down --max-steps 16 --settle 0.65
+# saved additional manufacturer-scroll samples; scroll_state visible=true position=middle up=true down=true.
+```
+
+Important live note:
+- The current game showed `控制器未连接` after creating/destroying vgamepad. The sampler's vgamepad A did not dismiss it in this state, so for this local sampling pass keyboard mode was used after a real title-bar click. This is sampling-only; the formal runner should still prefer persistent ViGEm/vgamepad and avoid fake focus.
+
+Verification:
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+# 62 passed, 6 skipped
+
+.\.venv\Scripts\python.exe -m v3.dataset --no-augment
+# raw_samples=911, images=911, labeled_images=723
+
+.\.venv\Scripts\python.exe -m v3.runtime_selftest --output reports\vision_runtime_selftest_vehicle_grid.json
+# ok=true, provider=CPUExecutionProvider
+
+.\.venv\Scripts\python.exe -m v3.ui_tree --output reports\ui_navigation_tree.md
+# exported reports\ui_navigation_tree.md
+
+.\.venv\Scripts\python.exe benchmarks\benchmark_v3_vision.py --raw-root datasets\forza_ui\raw --raw-max 80 --scales 1.0,0.75 --output-dir reports
+# reports\vision_benchmark_20260529-023910.md
+# Raw YOLO label recall=0.963, Raw Hybrid label recall=1.000, Raw Hybrid mean=48.57 ms
+
+.\build_vision.bat
+# rebuilt dist\Forza6HelperVision.exe, size=117709590 bytes
+
+Start-Process -FilePath .\dist\Forza6HelperVision.exe -ArgumentList @('--self-test','--output','reports\vision_runtime_selftest_packaged_vehicle_grid.json') -Wait
+# ok=true, provider=CPUExecutionProvider
+```
+
+New reports:
+- `reports\vehicle_grid_sampler_latest.json`
+- `reports\vehicle_grid_reanalysis_latest.json`
+- `reports\vision_runtime_selftest_vehicle_grid.json`
+- `reports\vision_runtime_selftest_packaged_vehicle_grid.json`
+- `reports\vision_benchmark_20260529-023910.md`
+
+Remaining risk:
+- `manufacturer_grid` currently uses OCR/name coverage to infer scrollability. The right scrollbar is visible in screenshots, but visual track/thumb localization still needs a more robust thin-bar detector if exact thumb position becomes necessary.
+- The vehicle grid class still reuses the trained `my_cars_card_focus` detector. That is acceptable for runtime fusion, but a future training pass should add more `vehicle_buy_grid`/manufacturer samples and possibly split card-focus classes if the model needs to distinguish EventLab car selection from autoshow purchase grids without OCR.
+- Do not wire this buy-car path into V1 runner yet. Keep it in V3 until the target-manufacturer selection and purchase-confirmation steps have enough samples and post-press verification rules.
+
+## 2026-05-29 hotfix 6 - Runtime UI navigation tree and nested tab scope
+
+User pointed out that the top tabs inside `暂停菜单 -> 车辆 -> 购买新车与二手车 -> 购买与出售` are not the same as the pause menu's top tabs. Example: the `剧情` tab on the autoshow/buy-sell page must be interpreted inside that child page, not as `暂停菜单 / 剧情`.
+
+Changes:
+- `v3/ui_tree.py`: new runtime UI navigation index. It models screen node, navigation path, tab scope, in-layer options, and child routes. Export command writes `reports\ui_navigation_tree.md`.
+- `v3/types.py`: `HybridUnderstanding` now carries `ui_node`, `ui_title`, `navigation_path`, `tab_scope`, `available_tabs`, `available_options`, and `child_routes`; `as_text()` prints them before detections/OCR.
+- `v3/hybrid.py`: attaches UI-tree context to every fused result, so `autoshow_buy_sell` displays path `暂停菜单 > 暂停菜单 / 车辆 > 购买与出售` and tab scope `购买与出售顶部分页`.
+- `v2/semantic.py`: added `AUTOSHOW_TABS = 剧情 / 购买与出售 / 车辆 / 角色` and keeps them separate from pause menu tabs in the V2 summary.
+- `v3/gui_v3.py`: top summary now includes the resolved UI node and tab scope.
+- `v3/hybrid.py`: modal focus can now derive the focused button from full-frame OCR plus lime-border scoring. This separates modal title text such as `移动至嘉年华` from focused buttons such as `嗯` / `不`.
+- `tests/test_v3_vision.py`: added regression tests for modal button focus from OCR+border, autoshow UI tree scope, and V2 autoshow child tabs.
+
+Verification:
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+# 58 passed, 6 skipped
+
+.\.venv\Scripts\python.exe -m v3.runtime_selftest --output reports\vision_runtime_selftest_source_ui_tree.json
+# ok=true, provider=CPUExecutionProvider
+
+.\.venv\Scripts\python.exe -m v3.ui_tree --output reports\ui_navigation_tree.md
+# exports the current runtime UI tree
+
+.\build_vision.bat
+# rebuilt dist\Forza6HelperVision.exe, size=117696985 bytes
+
+Start-Process -FilePath .\dist\Forza6HelperVision.exe -ArgumentList @('--self-test','--output','reports\vision_runtime_selftest_packaged_ui_tree.json') -Wait
+# ok=true, provider=CPUExecutionProvider
+```
+
+Important interpretation:
+- The tree is intentionally local/sample-backed, not web-scraped. Web results for game UI are incomplete and often stale; real screenshots/samples remain the source of truth.
+- The current tree covers the production-critical path: free roam/idle, pause tabs, vehicle page, autoshow buy-sell, garage/my cars, vehicle mastery, my horizon, online, creative hub, EventLab, filters, race type, my cars, race menu/HUD/result/next, modal warnings, maps/settings/tuning/overlays.
+- It is not yet a full encyclopedia of every Forza UI. Unknown child pages should be sampled and added as nodes instead of guessing.
+
+## 2026-05-28 hotfix 5 - UI name audit and broad fallback guard
+
+User wanted the program side to use stable official UI names, not the first OCR token from a card. The concrete example was EventLab: OCR may read `HORIZON | eventlab | BFGoodrich | ALUMICRAFT | CR | 创建并浏览赛事`, but the focused card should display `eventlab`.
+
+Changes:
+- `v3/ui_names.py`: expanded canonical names for EventLab cards, story page, vehicle page, my horizon, online, store/autoshow, modal titles, race menu/result, and post-race next cards.
+- `v3/ui_names.py`: normalization now strips more OCR separators such as parentheses, brackets, `*`, `#`, and Chinese title brackets, so `(HORIZON` / `STEAM*` style fragments do not become selected names.
+- `v3/hybrid.py`: skips `rule-fallback` full-page focus boxes when reading small OCR for `selected_item`. This prevents a broad fallback box from turning a whole pause page into `festival` or another background token.
+- `v3/ui_name_audit.py`: audits raw sample metadata against the canonical UI name table and treats `rule-fallback` rows as V2 context rows instead of blindly resolving from full-page OCR.
+- `tests/test_v3_vision.py`: added regression tests for EventLab, Horizon Play, premium store bundle, Festival Playlist, split vehicle names, online friends, creative hub props, and broad fallback guard.
+
+Verification:
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+# 55 passed, 6 skipped
+
+.\.venv\Scripts\python.exe -m v3.ui_name_audit --raw-root datasets\forza_ui\raw --output reports\ui_name_audit_latest.json
+# raw samples=871, candidate rows=724, official name rows=455, fallback rows=127, unresolved rows=142
+
+.\.venv\Scripts\python.exe benchmarks\benchmark_v3_vision.py --model v3\models\forza_ui_yolo.onnx --scales 1.0,0.65,1.25 --raw-root datasets\forza_ui\raw --raw-max 200 --output-dir reports
+# reports\vision_benchmark_20260529-000819.md
+# Raw YOLO label recall=0.985, Raw Hybrid label recall=1.000, Raw Hybrid mean=67.43 ms
+
+.\build_vision.bat
+# rebuilt dist\Forza6HelperVision.exe, size=117685049 bytes
+
+Start-Process -FilePath .\dist\Forza6HelperVision.exe -ArgumentList @('--self-test','--output','reports\vision_runtime_selftest_packaged_ui_names.json') -Wait
+# ok=true, provider=CPUExecutionProvider
+```
+
+Remaining risk:
+- `vehicle_mastery_focus` often has blank OCR inside skill nodes; runtime should keep the V2 selected skill name when available.
+- Some `modal_warning` fallback rows are actually world-map/race-card text captured after modal transitions. Do not add those as modal names; collect more true yes/no modal samples instead.
+- The full OCR benchmark with `--with-ocr --ocr-max 2` is still very slow and should be run only for milestone checks. The latest full OCR baseline remains `reports\vision_benchmark_20260528-223830.md`.
+
+## 2026-05-28 hotfix 4 - Canonical UI names
+
+User pointed out that the program should not call the focused EventLab tile `HORIZON` just because OCR reads decorative/brand text first. The recognizer now has a canonical UI naming layer.
+
+Changes:
+- `v3/ui_names.py`: new fixed-name resolver. It filters decorative/background OCR tokens such as `HORIZON`, `BFGoodrich`, `ALUMICRAFT`, `CR`, button hints, and generic verbs before falling back to raw OCR text.
+- `v3/hybrid.py`: selected item fusion now calls the fixed-name resolver with the OCR region type. Example: `HORIZON | eventlab | BFGoodrich | ALUMICRAFT | CR | 创建并浏览赛事` resolves to `eventlab`.
+- `v3/ui_names.py`: added initial fixed-name coverage for story, vehicle, creative hub/EventLab, my horizon, online, store/autoshow, modal, and modal button/menu-row focus regions.
+- `v3/hybrid.py`: `eventlab_card_focus` no longer forces the screen to `eventlab_favorites`; it preserves the V2 EventLab/creative-hub screen family where available and uses YOLO as the card/focus signal.
+
+Verification:
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+# 51 passed, 6 skipped
+```
+
+Live current-window check after this change was on the vehicle page rather than the EventLab tile, and the saved JSON showed the selected item normalized to `更换车辆` from OCR text split as `更换 | 车辆`.
+
+## 2026-05-28 hotfix 3 - Idle showcase wake probes
+
+User clarified that UI-less vehicle/showroom standby pages are not always true unknown states: pressing `A`, pressing `B`, opening `Menu`, or a small real controller movement can cause the hidden UI to appear. The Vision layer now models this as a wakeable state rather than a dead unknown.
+
+Changes:
+- `v3/hybrid.py`: if the fused screen is `unknown`, there are no detections/OCR UI items/focus boxes, and the frame is nonblank with enough visual variance, the screen is promoted to `idle_showcase` at cautious confidence.
+- `v3/hybrid.py`: `idle_showcase` returns ordered wake probes: `A`, `B`, then `Menu`, each with a required post-press verification condition. These are action suggestions only in the GUI.
+- `v2/semantic.py`: `notification_overlay` now also offers the same cautious wake probes because seasonal notifications often sit on top of a standby/showroom state.
+- `v3/hybrid.py`: fixed another fusion issue where final screen could be promoted by YOLO/rules to `modal_warning` while actions still reused stale V2 `unknown` advice. V2 actions are reused only when the V2 screen matches the fused screen family.
+
+Verification:
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests\test_v3_vision.py tests\test_v2_semantic.py -q
+# 42 passed, 6 skipped
+```
+
+Live no-input check after the action-fusion fix:
+- Captured `reports/live_debug/idle_wake_probe_after_action_fix.png`.
+- Result: `screen=modal_warning`, `selected_item=已收藏新车！`, provider `CPUExecutionProvider`.
+- Action recommendation is now modal-specific `弹窗等待确认`, not stale `未知画面`.
+
+Important boundary: do not implement fake-focus or OS mouse nudging in Vision. If future automation wakes an idle page, prefer normal ViGEm/vgamepad actions (`A`, `B`, `Menu`, or a tiny real stick wiggle) and verify after exactly one probe.
+
+## 2026-05-28 hotfix 2 - Probe OCR, modal/autoshow focus, packaged self-test
+
+User reported more Vision GUI mismatches: modal OCR was readable but the current focused button was not surfaced, autoshow/buy-sell child pages were too coarse, and screenshots still showed stale `ONNX unavailable: model not found`. This pass keeps V1 untouched and strengthens only V2/V3/Vision.
+
+Changes:
+- `v3/focus_regions.py`: new yellow-green focus-box detector for button/menu-row outlines.
+- `v3/hybrid.py`: when V2/model confidence is low, reads probe OCR regions (`probe_top_center`, `probe_center_modal`, `probe_left_title`, `probe_bottom_hints`) and reruns V2 semantic analysis. Also reads `modal_button_focus` and `autoshow_menu_focus` OCR regions and promotes them into `selected_item`.
+- `v2/semantic.py`: added `notification_overlay` for seasonal/system notifications and default selected item for `autoshow_buy_sell`.
+- `v3/gui_v3.py`: loads model on startup and overlays OCR regions in the preview, not only detection boxes.
+- `v3/runtime_selftest.py` and `vision_launcher.py --self-test`: source and packaged exe can now prove ONNX model resolution/loading without opening the GUI.
+
+Live no-input check on the current Forza window:
+- Captured `reports/live_debug/current_after_hotfix.png`.
+- Result: `screen=notification_overlay`, `confidence=0.86`, provider `CPUExecutionProvider`, no `model not found`.
+- Action recommendation: wait for the seasonal notification to disappear; no blind input.
+
+Verification:
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+# 45 passed, 6 skipped
+
+.\.venv\Scripts\python.exe -m v3.runtime_selftest --output reports\vision_runtime_selftest_source.json
+# ok=true
+
+.\build_vision.bat
+# rebuilt dist\Forza6HelperVision.exe at 2026-05-28 22:31
+
+Start-Process -FilePath .\dist\Forza6HelperVision.exe -ArgumentList @('--self-test','--output','reports\vision_runtime_selftest_packaged.json') -Wait
+# reports\vision_runtime_selftest_packaged.json: ok=true, provider=CPUExecutionProvider
+
+.\.venv\Scripts\python.exe benchmarks\benchmark_v3_vision.py --model v3\models\forza_ui_yolo.onnx --scales 1.0,0.65,1.25 --with-ocr --ocr-max 2 --raw-root datasets\forza_ui\raw --output-dir reports
+# reports\vision_benchmark_20260528-223830.md
+```
+
+Latest benchmark summary:
+```text
+V2 semantic/rule mean: 70.25 ms
+YOLO ONNX mean: 56.64 ms
+Hybrid mean: 146.52 ms
+Full OCR+V2 subset mean: 1721.33 ms
+Raw YOLO label recall: 0.971
+Raw Hybrid label recall: 1.000
+Raw YOLO mean: 41.62 ms
+Raw Hybrid mean: 80.19 ms
+```
+
+Remaining risk: modal button focus now has rule/OCR support, but more real yes/no modal samples should still be saved because the YOLO class remains generic `modal_warning`; do not connect this directly to V1 runner yet.
+
+## 2026-05-28 hotfix - V3 selected item fusion and packaged model path
+
+Issue observed in the Vision GUI: detection/OCR boxes could be correct while the summary line `selected_item` still showed the broader V2 semantic name. Root cause was fusion priority: V2 semantic `selected_item` was kept ahead of the small-region OCR text attached to the highest-confidence detection box. The packaged GUI also showed `model not found: v3\models\forza_ui_yolo.onnx` when started from `dist`, because the relative ONNX path was resolved against the exe working directory instead of the repo / PyInstaller bundle assets.
+
+Fixes:
+- `v3/hybrid.py`: `HybridRecognizer` now promotes small-region OCR text from the primary detection box into `selected_item`, then falls back to V2 semantic text only when no useful detection/OCR text exists.
+- `v3/yolo_detector.py`: added `resolve_asset_path()` so model/classes paths resolve from cwd, repo root, PyInstaller `_MEIPASS`, and exe directory.
+- `v3/gui_v3.py`: reload checks compare the resolved model path, avoiding false reload/missing-model behavior.
+- `tests/test_v3_vision.py`: added regression coverage for OCR-preferred selected item fusion and relative model path resolution.
+
+Verification:
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests\test_v3_vision.py tests\test_v2_semantic.py -q
+# 35 passed, 6 skipped
+
+.\build_vision.bat
+# rebuilt dist\Forza6HelperVision.exe at 2026-05-28 22:15
+```
+
+User-facing expected result: restart `dist\Forza6HelperVision.exe`. On EventLab tiles the summary focus should prefer the visible tile text such as the highlighted tile's OCR, and controller warning should no longer report `ONNX unavailable: model not found`.
+
+## 2026-05-28 final update - V3 Vision race/EventLab sampling and benchmark
+
+本轮在不注入、不 hook、不 fake-focus、不修改游戏文件的前提下，继续推进独立 V3/Vision 识别链路；V1 稳定 runner 未接入、未替换。自动操作只用于用户已授权的采样工具，输入方式为 ViGEmBus/vgamepad 普通虚拟 Xbox 手柄，并保持“按一步、重新识别、验证后再继续”的策略。
+
+新增/强化内容：
+
+- `v3/race_sampler.py`：从 EventLab 赛事页继续导航，采集 `race_menu`、`race_hud`、`race_result`，并写入 `reports\race_sampler_latest.json`。
+- `v2/semantic.py`：新增/强化 `eventlab_events`、`race_menu`、`race_result`、`loading_transition`、`free_roam_hud`、`settings_menu`、`tuning_menu`、`online_player_list`、`external_overlay`、`modal_warning` 等页面语义，减少 unknown。
+- `v3/focus_sweeper.py`：继续保留危险页保护，避免 Steam/商店/退出游戏等入口被自动进入。
+- `benchmarks/benchmark_v3_vision.py`：benchmark 输出 raw per-label recall，便于看纯 YOLO 与 hybrid 的类别弱点。
+
+实采结果：
+
+- raw samples: `871`
+- YOLO images: `5226`
+- labeled images: `4290`
+- raw unknown: `7`
+- 新增真实比赛链路样本：`race_menu=19 raw`、`race_hud=19 raw`、`race_result=5 raw`
+- 当前数据集摘要：`datasets\forza_ui\yolo\summary.json`
+
+最终主 ONNX：
+
+- 模型文件：`v3\models\forza_ui_yolo.onnx`
+- 选择来源：`runs\detect\v3\runs\forza_ui_yolo_race_512_e2\weights\best.pt`
+- 选择原因：后续 1 epoch 当前数据集续训虽然把 `race_result` 拉高，但打坏了纯 YOLO 的 `race_menu`；e2 checkpoint 在最终 raw metadata 上更均衡。
+- 导出命令：
+
+```powershell
+.\.venv\Scripts\python.exe -m v3.train_yolo --checkpoint runs\detect\v3\runs\forza_ui_yolo_race_512_e2\weights\best.pt --imgsz 512 --output v3\models\forza_ui_yolo.onnx
+```
+
+最终 benchmark：
+
+```powershell
+.\.venv\Scripts\python.exe benchmarks\benchmark_v3_vision.py --model v3\models\forza_ui_yolo.onnx --scales 1.0,0.65,1.25 --with-ocr --ocr-max 2 --raw-root datasets\forza_ui\raw --output-dir reports
+```
+
+报告：`reports\vision_benchmark_20260528-215001.md`
+
+```text
+provider: CPUExecutionProvider
+V2 semantic/rule mean: 69.80 ms
+YOLO ONNX mean: 57.14 ms
+Hybrid mean: 146.66 ms
+Full OCR+V2 subset mean: 1582.14 ms
+V2 focus accuracy: 1.000
+Hybrid focus accuracy: 1.000
+Raw V3 label cases: 2145
+Raw YOLO label recall: 0.971
+Raw Hybrid label recall: 1.000
+Raw YOLO mean: 43.99 ms
+Raw Hybrid mean: 84.13 ms
+```
+
+Per-label 注意点：
+
+- `race_menu`: YOLO 1.000, Hybrid 1.000
+- `race_result`: YOLO 0.600, Hybrid 1.000，真实 raw 仍只有 5 张，需要继续补样本。
+- `pause_creative_hub_focus`: YOLO 0.700, Hybrid 1.000，样本少且与 EventLab 卡片相似。
+- `pause_my_horizon_focus`: YOLO 0.706, Hybrid 1.000，仍需更多焦点位置样本。
+
+当前判断：V3/Vision 链路已经具备可验证成果：采集、自动标注、YOLO 数据集、训练/导出、ONNXRuntime CPU 推理、规则/OCR 融合、按键建议验证条件、GUI、benchmark、打包入口均已跑通。由于 `race_result` 和少数暂停分页焦点仍样本不足，暂不建议直接接入 V1 主流程；应继续作为 V3 实验能力使用。
+
+常用命令：
+
+```powershell
+.\.venv\Scripts\pythonw.exe vision_launcher.py
+.\.venv\Scripts\python.exe -m v3.race_sampler --title Forza --max-steps 520 --settle 0.9 --hold 0.16 --run-seconds 180
+.\.venv\Scripts\python.exe -m v3.relabel_raw_samples --raw-root datasets\forza_ui\raw
+.\.venv\Scripts\python.exe -m v3.dataset --raw-root datasets\forza_ui\raw --dataset-root datasets\forza_ui\yolo
+.\.venv\Scripts\python.exe -m v3.train_yolo --checkpoint runs\detect\v3\runs\forza_ui_yolo_race_512_e2\weights\best.pt --imgsz 512 --output v3\models\forza_ui_yolo.onnx
+.\.venv\Scripts\python.exe benchmarks\benchmark_v3_vision.py --model v3\models\forza_ui_yolo.onnx --scales 1.0,0.65,1.25 --with-ocr --ocr-max 2 --raw-root datasets\forza_ui\raw --output-dir reports
+.\build_vision.bat
+```
+
+## 2026-05-28 V3 Vision Hybrid Recognizer
+
+### 2026-05-28 late update - Focus-enter sampling and 13-class ONNX
+
+用户允许更大胆地进入每个可见焦点后，新增 `v3/focus_sweeper.py`，用于在暂停页内移动焦点、保存每次高亮状态，并可选择按 A 进入当前焦点后再验证/回退。它只通过 ViGEmBus/vgamepad 发送普通手柄输入，不注入、不 hook、不 fake-focus、不改游戏文件；进入子页面后必须重新识别，不能确认回到暂停页时会写入 `reports\focus_sweep_latest.json` 并停止当前分页。
+
+本轮新增/更新：
+- `v2/semantic.py` 识别 `vehicle_mastery` 车辆熟练度技能树页面，避免把技能树误当作车辆暂停页继续循环。
+- `v3/types.py` / `v3/candidates.py` / `v3/hybrid.py` 增加 `vehicle_mastery_focus`。
+- `v3/yolo_detector.py` 会从 ONNX input shape 自动采用静态输入尺寸；当前模型为 512 输入。
+- `v3/focus_sweeper.py` 支持 `--enter-focused` / `--enter-limit`，并增加子页面回退保护。
+- `v3/models/classes.txt` 已更新为 13 类。
+
+最新实采和数据集：
+- raw samples: `740`
+- YOLO images: `4440`
+- labeled images: `4014`
+- 新增真实覆盖：车辆熟练度技能树、EventLab 我的车辆/22B 卡片、赛后下一站、更多暂停分页焦点进入状态。
+- 数据集类别计数：`pause_story_focus=810`, `pause_vehicle_focus=432`, `pause_creative_hub_focus=60`, `eventlab_card_focus=228`, `my_cars_card_focus=42`, `vehicle_mastery_focus=642`, `post_race_next=24`, `modal_warning=912`, `pause_my_horizon_focus=204`, `pause_online_focus=462`, `pause_store_focus=252`。
+- 仍为 0 的类别：`race_menu`, `race_result`。不要宣称这两类模型已可用；需要真实比赛 HUD/结算页样本。
+
+最新训练：
+```powershell
+.\.venv\Scripts\python.exe -m v3.train_yolo --data datasets\forza_ui\yolo\data.yaml --epochs 1 --batch 4 --device cpu --imgsz 512 --name forza_ui_yolo_focus_enter_512 --output v3\models\forza_ui_yolo.onnx
+```
+
+结果：`v3\models\forza_ui_yolo.onnx` 已导出，大小约 11.6 MB。验证集整体 `precision=0.729`, `recall=0.687`, `mAP50=0.812`, `mAP50-95=0.712`。`vehicle_mastery_focus` 很强，`post_race_next` 样本太少，`my_cars_card_focus` 验证召回不稳。
+
+最新 benchmark：
+```powershell
+.\.venv\Scripts\python.exe benchmarks\benchmark_v3_vision.py --model v3\models\forza_ui_yolo.onnx --scales 1.0,0.65,1.35 --with-ocr --ocr-max 2 --raw-root datasets\forza_ui\raw
+```
+
+报告：`reports/vision_benchmark_20260528-191039.md`
+
+```text
+cases: 24
+raw label cases: 2007
+provider: CPUExecutionProvider
+V2 semantic/rule mean: 79.79 ms
+YOLO ONNX mean: 65.48 ms
+Hybrid mean: 177.24 ms
+Full OCR+V2 subset mean: 1925.13 ms
+V2 focus accuracy: 1.000
+Hybrid focus accuracy: 1.000
+Raw YOLO label recall: 0.927
+Raw Hybrid label recall: 1.000
+Raw YOLO mean: 46.84 ms
+Raw Hybrid mean: 93.77 ms
+```
+
+当前判断：V3/Vision 链路已达到可验证成果：采集、焦点进入采样、自动标注、YOLO 数据集、CPU 训练、ONNX 导出/加载、混合推理、benchmark、GUI 和打包入口都可运行。仍不建议接入 V1 runner，原因是 race/result 未采样、`post_race_next` 和 `my_cars_card_focus` 样本太少，且第二轮 focus sweep 报告里仍有若干 `unknown` 子页面，需要继续补语义规则和样本。
+
+本轮目标：在不注入、不 hook、不 fake-focus、不修改游戏文件、不发送输入的前提下，把“最强识别版”作为独立 V3/Vision 链路落地，先证明采集、数据集、训练、ONNX 推理、混合理解、benchmark 和打包都能跑通，再决定是否有资格接入正式 runner。
+
+保护现状：
+
+- 未改 V1 主流程 runner 文件：`runner.py`、`smart_runner.py`、`combo_runner.py`、`buy_car_runner.py`、`buy_car_detector.py`、`screen_detector.py` 等稳定版入口没有被本轮改动。
+- 新增内容集中在 `v3/`、`benchmarks/`、`README_VISION.md`、`vision_launcher.py`、`Forza6HelperVision.spec`、`build_vision.bat`、`requirements_vision.txt` 和 `tests/test_v3_vision.py`。
+- V3 GUI 只识别、显示建议、保存样本，不连接虚拟手柄，不发送任何按键。
+
+已完成能力：
+
+- `v3/sample_collector.py`：支持 live window capture 和本地截图导入，raw 样本保存到 `datasets/forza_ui/raw/`。每个样本包含 `image.png`、窗口尺寸/标题/时间/采集方式、OCR 原始结果、V2 页面理解结果、自动候选框和 `metadata.json`。
+- `v3/candidates.py`：复用 V2 黄绿/亮黄焦点框检测，输出统一 `VisionDetection`，可直接转 YOLO label。
+- `v3/dataset.py`：从 raw 样本生成 YOLO 数据集，包含 `images/train`、`images/val`、`labels/train`、`labels/val`、`data.yaml` 和 `summary.json`；增强包含 blur、brightness、contrast、crop、scale。
+- `v3/train_yolo.py`：提供 Ultralytics YOLO nano 训练与 ONNX 导出入口，并支持从已有 `.pt` checkpoint 单独导出 ONNX。
+- `v3/export_bootstrap_onnx.py`：生成 `v3/models/bootstrap_empty.onnx`，用于无训练模型时验证 ONNXRuntime/打包链路。
+- `v3/yolo_detector.py`：ONNXRuntime 推理层，默认 CPU，可选 DirectML provider；支持 Ultralytics 常见输出形状。
+- `v3/hybrid.py`：融合 YOLO/ONNX、规则候选、V2 语义和 OCR 小区域，统一输出 `HybridUnderstanding` / `ActionRecommendation`；动作建议都带 verify 条件，不确定时输出“不按键/等待重新识别”。
+- `v3/gui_v3.py` + `vision_launcher.py`：新 Vision GUI，支持识别一次、实时识别、保存训练样本、生成 YOLO 数据集、显示检测框/OCR 小区域/动作建议、复制结果。
+- `benchmarks/benchmark_v3_vision.py`：对比 V2 语义/规则、YOLO ONNX、V3 hybrid 和全图 OCR+V2 子集耗时，并检查缩放截图焦点准确率。
+- `Forza6HelperVision.spec` + `build_vision.bat`：Vision 专用打包入口，exe 名称为 `Forza6HelperVision.exe`，不会覆盖稳定版。
+- `v3/auto_sampler.py`：在用户明确允许发送输入后使用 ViGEmBus/vgamepad 做自动采样。每次只按一个键，按完重新识别，验证通过才继续；验证失败会写 `reports\auto_sampler_latest.json` 并停止当前危险分支。
+
+本轮实测产物：
+
+- 从 `C:\Users\fu\Videos\Captures\*.png` 导入 8 个 raw 样本。
+- 使用 `v3.auto_sampler` 通过虚拟手柄采到控制器断开弹窗、剧情页、车辆页、我的地平线、在线、创意中心和创意中心 EventLab 焦点区域。
+- 生成 YOLO 数据集：`datasets/forza_ui/yolo`，当前 32 个 raw 样本、192 张增强图、180 张有标签。
+- 当前类别覆盖：`pause_story_focus=18`、`pause_vehicle_focus=126`、`pause_creative_hub_focus=60`、`modal_warning=30`。
+- 当前仍缺：`eventlab_card_focus`、`my_cars_card_focus`、`race_menu`、`race_result`、`post_race_next`。
+- 安装训练栈：`onnx`、`ultralytics`、CPU `torch` 等。
+- 运行 1 epoch CPU 快速训练，导出 `v3/models/forza_ui_yolo.onnx`。最新自动采样数据训练后验证集 `mAP50=0.24937`、`mAP50-95=0.14019`；`modal_warning` 表现最好，焦点类仍偏弱。
+- 同时生成 `v3/models/bootstrap_empty.onnx` 作为空检测 ONNX 兜底。
+- benchmark 报告：`reports/vision_benchmark_20260528-084443.md`。
+- 打包验证通过：`dist\Forza6HelperVision.exe` 已生成，大小约 115 MB；`dist\README_VISION.txt` 已同步。
+
+Benchmark 摘要：
+
+```text
+cases: 16
+detector loaded: True
+provider: CPUExecutionProvider
+V2 semantic/rule mean: 56.83 ms
+YOLO ONNX mean: 71.19 ms
+Hybrid mean: 140.96 ms
+Full OCR+V2 subset mean: 1840.00 ms
+V2 focus accuracy: 1.000
+Hybrid focus accuracy: 1.000
+```
+
+重要结论：
+
+- 当前 YOLO 模型仍不能宣称胜过规则/OCR。自动采样后 mAP50 已经从 0 提高到约 0.249，但类别仍不足，尤其缺 EventLab、车辆收藏、比赛菜单、结算页和赛后下一站。
+- 但链路已经可运行：采集 -> 自动标注 -> 数据集 -> 训练 -> ONNX 导出 -> ONNXRuntime 加载 -> 混合理解 -> benchmark -> 打包入口。
+- 现在不应接入正式 runner。下一步应该先补样本，覆盖暂停菜单剧情页、创意中心、EventLab、车辆收藏列表、比赛菜单、结算页、赛后下一站页和各种弹窗。
+
+常用命令：
+
+```powershell
+.\.venv\Scripts\pythonw.exe vision_launcher.py
+.\.venv\Scripts\python.exe -m v3.sample_collector --capture --title Forza
+.\.venv\Scripts\python.exe -m v3.sample_collector --import "C:\Users\fu\Videos\Captures\*.png" --limit 8
+.\.venv\Scripts\python.exe -m v3.dataset --raw-root datasets\forza_ui\raw --dataset-root datasets\forza_ui\yolo
+.\.venv\Scripts\python.exe -m v3.auto_sampler --title Forza --max-steps 45 --settle 1.0 --hold 0.22
+.\.venv\Scripts\python.exe -m v3.train_yolo --data datasets\forza_ui\yolo\data.yaml --epochs 1 --batch 2 --device cpu --imgsz 640 --name forza_ui_yolo_quick --output v3\models\forza_ui_yolo.onnx
+.\.venv\Scripts\python.exe benchmarks\benchmark_v3_vision.py --model v3\models\forza_ui_yolo.onnx --scales 1.0,0.65 --with-ocr --ocr-max 2
+.\build_vision.bat
+```
+
+验证：
+
+```powershell
+.\.venv\Scripts\python.exe -m py_compile vision_launcher.py v3\*.py benchmarks\benchmark_v3_vision.py
+py -m pytest -q tests\test_v2_semantic.py tests\test_v3_vision.py
+```
+
+当前已通过：`24 passed, 6 skipped`。
+
+### 2026-05-28 继续采样：全分页 + 多窗口尺寸
+
+用户允许继续使用 ViGEmBus/vgamepad 进入更多页面后，新增/更新：
+- `v3/window_sizer.py`：用 Win32 `SetWindowPos` 调整 Forza 窗口尺寸，便于同一页面在中等窗口和大窗口下复采；不注入、不 hook、不修改游戏文件。
+- `v3/relabel_raw_samples.py`：使用 raw metadata 里已有 OCR 原文和当前规则刷新 `understanding` / `candidates`，用于修正旧规则写入的候选框。
+- `v3/auto_sampler.py`：暂停分页目标扩展为全部 `剧情 / 车辆 / 我的地平线 / 在线 / 创意中心 / 商店`；保守模式仍按一次、识别一次、验证后继续。
+- `v2/semantic.py`：修正“无法加入游戏/注意”顶部联网提示条误判。现在顶部提示不会覆盖底层暂停页；真正居中搜索结果/警告仍识别为 `modal_warning`。
+- `v3/types.py` / `v3/candidates.py` / `v3/hybrid.py`：新增 `pause_my_horizon_focus`、`pause_online_focus`、`pause_store_focus`，让全部暂停分页都能生成焦点候选框和 YOLO 标签。
+- `benchmarks/benchmark_v3_vision.py`：新增 raw metadata label recall，对保存样本按 `1.0 / 0.65 / 1.35` 缩放评估 YOLO 和 Hybrid 标签召回。
+
+本轮实采：
+- 当前中等窗口约 `1189 x 698` 外框，采到剧情、车辆、我的地平线、在线、创意中心/EventLab 首页、商店。
+- 大窗口复采使用 `v3.window_sizer --width 1700 --height 1000 --x 40 --y 40`，再次采到上述分页。
+- raw 样本总数：`245`。
+- YOLO 数据集：`1470` 张增强图，`1470` 张有标签。
+- 当前类别计数：`pause_story_focus=78`、`pause_vehicle_focus=180`、`pause_creative_hub_focus=60`、`eventlab_card_focus=102`、`modal_warning=888`、`pause_my_horizon_focus=36`、`pause_online_focus=144`、`pause_store_focus=36`。
+- 仍缺：`my_cars_card_focus`、`race_menu`、`race_result`、`post_race_next`。
+
+最新训练：
+- 命令：`.\.venv\Scripts\python.exe -m v3.train_yolo --data datasets\forza_ui\yolo\data.yaml --epochs 1 --batch 2 --device cpu --imgsz 640 --name forza_ui_yolo_multisize_tabs --output v3\models\forza_ui_yolo.onnx`
+- 验证集整体：`mAP50=0.543`、`mAP50-95=0.491`。
+- 类别现状：`modal_warning`、`pause_online_focus`、`eventlab_card_focus` 较强；`pause_story_focus`、`pause_my_horizon_focus` 样本仍少；缺失的比赛/结算类暂不可宣称。
+
+最新 benchmark：
+```powershell
+.\.venv\Scripts\python.exe benchmarks\benchmark_v3_vision.py --model v3\models\forza_ui_yolo.onnx --scales 1.0,0.65,1.35 --with-ocr --ocr-max 2 --raw-root datasets\forza_ui\raw --raw-max 120
+```
+
+报告：`reports/vision_benchmark_20260528-181335.md`
+
+```text
+cases: 24
+raw label cases: 360
+provider: CPUExecutionProvider
+V2 semantic/rule mean: 75.66 ms
+YOLO ONNX mean: 77.96 ms
+Hybrid mean: 172.37 ms
+Full OCR+V2 subset mean: 1664.41 ms
+V2 focus accuracy: 1.000
+Hybrid focus accuracy: 1.000
+Raw YOLO label recall: 0.875
+Raw Hybrid label recall: 1.000
+Raw YOLO mean: 50.28 ms
+Raw Hybrid mean: 64.25 ms
+```
+
+当前判断：
+- 对“暂停页分页/焦点”这条线，混合方案已经能在当前 raw 样本和缩放样本上覆盖中等窗口与大窗口。
+- YOLO 单模型还不能独立替代规则层，因为样本分布偏斜，`modal_warning` 重复样本偏多，比赛/结算/车辆收藏内部样本仍缺。
+- 继续采集时应优先补：车辆收藏列表、EventLab 深层赛事列表、比赛开始菜单、赛后结算、赛后下一站。
+
+## 2026-05-28 V2 Page Understanding + YOLO Candidate
+
+本轮目标：不要继续在稳定版 V1 上直接试错，而是把“页面理解”单独做成 V2 测试版；同时评估 YOLO 路线是否值得进入下一阶段。
+
+当前原则：
+
+- **V1 稳定版先冻结**：不要为了 V2 识别实验继续改主程序流程，尤其不要再直接改 `combo_runner.py`、`buy_car_detector.py`、`smart_runner.py`，除非 V2 已经证明更稳。
+- **V2 只识别不输入**：V2 不连接虚拟手柄，不按键，不替代稳定版。它只负责截图、OCR/视觉理解、输出页面、焦点和下一步建议。
+- **不注入游戏**：仍然不走 hook、fake-focus、注入或修改游戏进程。打包后的正式输入路径仍然优先保留 ViGEmBus + vgamepad 虚拟 Xbox 手柄。
+
+### V1 当前认识
+
+- 用户本机 V1 模式三在正确窗口/分辨率下可以稳定跑数小时。
+- 朋友机器最早模式三失效，后来确认与游戏分辨率/窗口尺寸强相关；把游戏分辨率改到和用户本机一致的 `3840 x 2160` 后，1 分钟测试能跑通。
+- 朋友后续 60 分钟睡觉测试只跑了约 4 场，说明 V1 仍可能在某些状态页或焦点/窗口条件下卡住。结论不是“手柄失效”，而是当前识别根基仍偏脆弱。
+- V1 的现实限制：它依赖 OCR、颜色阈值、固定比例区域、状态机兜底。窗口比例、分辨率、UI 缩放、OCR 质量、亮度/HDR、语言、弹窗、游戏焦点都会影响识别。
+
+### V2 当前文件
+
+- `v2_launcher.py`：启动 V2 测试 GUI。
+- `v2/__init__.py`：标记 V2 是单独实验包。
+- `v2/gui_v2.py`：V2 GUI，包含“识别一次”“开始实时”“停止”“复制结果”。
+- `v2/semantic.py`：页面语义模型，负责把 OCR、布局、颜色焦点框组合成 `PageUnderstanding`。
+- `tests/test_v2_semantic.py`：V2 语义层测试，覆盖暂停菜单剧情分页、车辆分页、缩小窗口后的车辆焦点识别。
+- `README_V2.md`：V2 使用说明。
+- `build_v2.bat` / `Forza6HelperV2.spec`：V2 打包入口。
+
+启动命令：
+
+```powershell
+.\.venv\Scripts\pythonw.exe v2_launcher.py
+```
+
+打包命令：
+
+```powershell
+.\build_v2.bat
+```
+
+### V2 已完成的识别能力
+
+- 暂停菜单剧情分页：
+  - 能区分顶部分页：`剧情 / 车辆 / 我的地平线 / 在线 / 创意中心 / 商店`。
+  - 能识别焦点：`收集簿`、`世界地图`、`下一站`、`设置`、`退出游戏`、`Festival Playlist / 欢迎来到日本`。
+  - 第一张“地产”误判已经暴露过：不能只靠 OCR 文本或固定块位，要把焦点亮黄边框作为第一信号。
+- 暂停菜单车辆分页：
+  - 能识别焦点：`购买新车与二手车`、`更换车辆`、`车辆熟练度`、`秘藏座驾`、`车房宝物`、`礼物掉落箱`、`汽车喇叭`、`调校车辆`。
+  - 针对右侧小条目，已加入 OCR 文本邻近匹配和亮黄边组件检测。
+  - 针对缩小窗口，测试里已经加入 `max_width=760` 的缩放回放，当前车辆页样本可通过。
+- 页面建议层：
+  - V2 会输出“只展示、不执行”的动作建议，例如从剧情去车辆分页时建议 `RB`。
+  - 建议必须带验证条件，例如按完后重新识别 `active_tab`，不能盲按。
+
+### V2 识别根基
+
+`v2/semantic.py` 当前主要依赖四类信号：
+
+- OCR 文本：RapidOCR 识别页面标题、分页名、按钮名、底部提示。
+- 归一化布局：把 OCR 坐标转成内容区域内的 `0..1` 坐标，尽量减少窗口尺寸影响。
+- 颜色/边框：检测 Forza 焦点的亮黄绿色边框，不再只猜固定位置。
+- 状态语义：先判断页面类型，再在对应页面里解释焦点和下一步动作。
+
+这比 V1 的“状态名 + 局部阈值 + 按键兜底”更接近页面理解，但仍不是最终方案。
+
+### 当前 V2 限制
+
+- 还没有接入稳定版主流程，只是测试识别。
+- 仍然用了 OCR；极小窗口、模糊缩放、HDR/过曝、UI 比例异常、遮挡窗口都可能降低识别。
+- 目前只重点校准了暂停菜单剧情页和车辆页；EventLab、买车页面、车辆收藏列表、比赛结算页、赛后“下一站”页还需要按同样方法补样本和测试。
+- 当前 V2 不负责找 22B。22B 选择仍涉及文本/车辆卡识别，单靠焦点框不够。
+
+### 验证结果
+
+最近一次语义层测试：
+
+```powershell
+py -m pytest -q tests\test_v2_semantic.py
+```
+
+结果：`19 passed, 6 skipped`。跳过项是旧的剧情页本地校准截图不存在时自动跳过，不代表当前代码失败。当前 `.venv` 没有安装 `pytest`，所以如果要用 `.venv` 跑测试，需要先补开发依赖。
+
+语法检查：
+
+```powershell
+.\.venv\Scripts\python.exe -m py_compile .\v2\semantic.py .\v2\gui_v2.py .\v2_launcher.py
+```
+
+结果：通过。
+
+### YOLO 可行性判断
+
+YOLO 路线**可以做**，但建议做成“混合视觉模型”，不要幻想纯 YOLO 直接替代所有逻辑。
+
+最适合 YOLO 做的事：
+
+- 检测当前页面大类：暂停菜单、车辆页、创意中心、EventLab 列表、车辆列表、比赛菜单、结算页、赛后下一站页。
+- 检测焦点框/高亮框位置。
+- 检测关键 UI 卡片：暂停菜单 tile、车辆页 tile、EventLab 赛事卡、车辆卡、弹窗。
+
+不适合纯 YOLO 做的事：
+
+- 读取共享代码、车名、积分、具体 OCR 文本。
+- 在朋友收藏列表里泛化识别任意位置的 `22B`，除非仍然配合 OCR 或给 22B 卡片做大量样本。
+
+推荐方案：
+
+- YOLO 负责“看见结构和焦点”：页面类别、tile 类别、焦点框、弹窗。
+- OCR 只在必要时读取少量文本：比如 `22B`、`我的收藏`、共享代码、确认弹窗文本。
+- 状态机只根据“模型输出 + 验证条件”按键，按完必须重新识别。
+
+### YOLO 性能预期
+
+如果训练一个小模型并导出 ONNX，运行时只喂 640px 或 800px 宽的缩放截图，理论上有机会比 V1 的全量 OCR 更快。原因是 OCR 通常比小目标检测更慢，而且 OCR 对模糊/缩放更敏感。
+
+但是否真的更快必须实测，不能拍脑袋。通过标准建议：
+
+- CPU-only ONNX 推理平均耗时低于当前 V1/V2 OCR 识别耗时。
+- 在用户本机、朋友机器、不同窗口大小、不同 UI 缩放下，页面类别和焦点识别准确率明显高于 V1。
+- 小窗口不要求每个字可读，但必须能稳定识别页面结构和当前焦点。
+- 模型文件可以随 exe 一起打包，程序首次运行无需额外训练。
+
+### YOLO 数据集计划
+
+推荐先做最小数据集，不要一口气训练全流程：
+
+1. 收集截图：从 V2 GUI 增加“保存训练样本”按钮，保存原图和当前识别 JSON。
+2. 第一批类别只做页面/焦点结构：
+   - `pause_story_focus`
+   - `pause_vehicle_focus`
+   - `pause_creative_hub_focus`
+   - `eventlab_card_focus`
+   - `my_cars_card_focus`
+   - `race_result`
+   - `post_race_next`
+   - `modal_warning`
+3. 标注方式优先用已有亮黄边检测自动生成候选框，再人工复核，减少手工画框。
+4. 训练 YOLO nano/small 级别模型，导出 ONNX。
+5. 在 V2 里新增 `v2/yolo_detector.py`，让 YOLO 输出和当前 `PageUnderstanding` 融合。
+6. 只有 V2 基准测试赢过 OCR/规则版后，再讨论替换 V1 的识别层。
+
+### 下一步建议
+
+1. 先把 V2 继续补成完整页面理解回放测试：剧情页、车辆页、创意中心、EventLab、车辆收藏、比赛菜单、结算页、赛后下一站。
+2. 增加一个样本采集工具：每次识别时可保存截图、OCR、页面理解结果、窗口尺寸。
+3. 用这些样本生成 YOLO 初版数据集。
+4. 训练小模型并导出 ONNX。
+5. 写基准脚本，对比：
+   - V1/V2 OCR 识别耗时
+   - YOLO ONNX 耗时
+   - 混合方案准确率
+6. 通过后再把 V2 页面理解层接入正式 runner。
+
 ## 2026-05-26 EXE Packaging Prep
 
 本轮目标：把项目准备成能发给朋友的 exe，并把虚拟手柄驱动依赖做成更像产品的提示，而不是只丢一句“自己去装驱动”。

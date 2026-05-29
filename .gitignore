@@ -6,4 +6,12 @@ dist/
 .venv/
 venv/
 logs/
+reports/
+runs/
+yolov8*.pt
+datasets/forza_ui/raw*/
+datasets/forza_ui/images/
+datasets/forza_ui/labels/
+datasets/forza_ui/yolo/images/
+datasets/forza_ui/yolo/labels/
 .DS_Store

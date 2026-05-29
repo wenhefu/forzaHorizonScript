@@ -1,0 +1,25 @@
+{
+  "raw_samples": 993,
+  "images": 993,
+  "labeled_images": 775,
+  "dataset_root": "datasets\\forza_ui\\yolo",
+  "data_yaml": "datasets\\forza_ui\\yolo\\data.yaml",
+  "class_counts": {
+    "pause_story_focus": 117,
+    "pause_vehicle_focus": 77,
+    "pause_creative_hub_focus": 10,
+    "eventlab_card_focus": 99,
+    "my_cars_card_focus": 22,
+    "vehicle_mastery_focus": 116,
+    "race_menu": 19,
+    "race_result": 5,
+    "post_race_next": 4,
+    "modal_warning": 188,
+    "pause_my_horizon_focus": 35,
+    "pause_online_focus": 42,
+    "pause_store_focus": 45,
+    "design_card_focus": 1,
+    "color_select": 1,
+    "car_preview": 3
+  }
+}

@@ -1,0 +1,21 @@
+path: datasets/forza_ui/yolo
+train: images/train
+val: images/val
+nc: 16
+names:
+  0: pause_story_focus
+  1: pause_vehicle_focus
+  2: pause_creative_hub_focus
+  3: eventlab_card_focus
+  4: my_cars_card_focus
+  5: vehicle_mastery_focus
+  6: race_menu
+  7: race_result
+  8: post_race_next
+  9: modal_warning
+  10: pause_my_horizon_focus
+  11: pause_online_focus
+  12: pause_store_focus
+  13: design_card_focus
+  14: color_select
+  15: car_preview

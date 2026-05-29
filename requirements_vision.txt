@@ -1,0 +1,6 @@
+-r requirements.txt
+onnxruntime
+opencv-python
+PyYAML
+onnx
+ultralytics
