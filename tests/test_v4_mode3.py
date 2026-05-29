@@ -455,6 +455,48 @@ def test_farm_phase_watchdog_stops_stuck_smart_runner():
     assert any("farm_watchdog_stop" in item for item in runner.report.errors)
 
 
+def test_farm_phase_zero_duration_means_unlimited_until_runner_exits():
+    class FakeVisionFarmRunner:
+        def __init__(self):
+            self.exit_reason = "graceful_exit"
+            self.stop_called = False
+            self._thread = None
+            self.polls = 0
+
+        def start(self, **kwargs):
+            self.started_with = kwargs
+
+        def is_running(self):
+            self.polls += 1
+            return self.polls <= 2
+
+        def stop(self):
+            self.stop_called = True
+
+    runner = V4Mode3Runner.__new__(V4Mode3Runner)
+    runner.vision_farm_runner = FakeVisionFarmRunner()
+    runner._farm_mode = "vision"
+    runner.watchdog_seconds = 0.01
+    runner._stop = threading.Event()
+    runner.report = SimpleNamespace(errors=[])
+    logs = []
+    runner._log = logs.append
+    runner._sleep = lambda _seconds: True
+
+    assert V4Mode3Runner._run_farm_phase(runner, None, auto_focus=False, require_foreground=True)
+    assert runner.vision_farm_runner.started_with["total_seconds"] is None
+    assert not runner.vision_farm_runner.stop_called
+    assert not runner.report.errors
+    assert any("持续跑模式一" in message for message in logs)
+
+
+def test_farm_seconds_zero_is_unlimited_but_missing_override_uses_default():
+    assert V4Mode3Runner._farm_seconds(0.0) is None
+    assert V4Mode3Runner._farm_seconds(-1.0) is None
+    assert V4Mode3Runner._farm_seconds(12.5) == 12.5
+    assert V4Mode3Runner._farm_seconds(None) > 0
+
+
 def test_exit_after_farm_keeps_verifying_after_idle_menu_press():
     runner = V4Mode3Runner.__new__(V4Mode3Runner)
     runner.watchdog_seconds = 1.0

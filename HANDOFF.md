@@ -1,5 +1,20 @@
 # Handoff - Forza Horizon 6 Helper
 
+## 2026-05-30 hotfix 20 - V4 farm duration zero is truly continuous
+
+User expected the V4 GUI's `跑图时间(分钟)=0` label (`0=一直跑`) to mean a continuous farm. The GUI label was ahead of the runner behavior: GUI passed `None`, and `V4Mode3Runner._farm_seconds(None)` converted it to the config default 90-minute leg.
+
+Changed:
+- `v4/gui_v4.py`: when farm minutes is `0`, pass `0.0` explicitly instead of `None`.
+- `v4/mode3_runner.py`: `_farm_seconds(0 or negative)` now returns `None`, and `_run_farm_phase(None, ...)` starts the selected farm runner with `total_seconds=None` and does not trigger the target-duration graceful-exit/watchdog path.
+- `tests/test_v4_mode3.py`: added regressions for unlimited farm phase and for `0` vs omitted farm duration.
+- `README_V4.md`: documented `--farm-seconds 0`.
+
+Semantics:
+- `farm_minutes=3` means repeat races for about 3 minutes, then finish the current race, exit results, and let V4 complete the current mode-three leg.
+- `farm_minutes=0` means keep the farm runner going continuously until the user stops it or the farm runner's own stall watchdog exits.
+- This is still not the full V1-style outer buy/farm loop. V4 GUI currently runs one mode-three leg. Full outer looping should wait until the vision buy runner replaces the V1 buy phase.
+
 ## 2026-05-30 hotfix 19 - Vision buy-phase decision foundation + full mode-three x2 live findings
 
 Full mode-three x2 live run (`run_mode3_x2.py`, farm 3min/round, watchdog 180s):

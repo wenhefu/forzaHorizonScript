@@ -202,7 +202,7 @@ class V4App:
         if self.runner.is_running():
             return
         farm_minutes = self._read_float(self.farm_minutes, 3.0)
-        farm_seconds = farm_minutes * 60.0 if farm_minutes > 0 else None
+        farm_seconds = farm_minutes * 60.0 if farm_minutes > 0 else 0.0
         watchdog = max(20.0, self._read_float(self.watchdog_secs, 180.0))
         startup = max(0.0, self._read_float(self.startup_delay, 4.0))
         self.runner.watchdog_seconds = watchdog

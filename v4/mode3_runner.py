@@ -439,12 +439,15 @@ class V4Mode3Runner:
         self._log("V4 EventLab 导航超过最大时长，已停止，避免继续盲按。")
         return False
 
-    def _run_farm_phase(self, farm_seconds: float, auto_focus: bool, require_foreground: bool) -> bool:
+    def _run_farm_phase(self, farm_seconds: float | None, auto_focus: bool, require_foreground: bool) -> bool:
         if self._farm_mode == "smart":
             runner, label = self.smart_runner, "V1 SmartRunner"
         else:
             runner, label = self.vision_farm_runner, "V3 视觉刷图 VisionFarmRunner"
-        self._log(f"V4 已到开始赛事菜单，交给 {label} 跑模式一约 {farm_seconds / 60:.1f} 分钟。")
+        if farm_seconds is None:
+            self._log(f"V4 已到开始赛事菜单，交给 {label} 持续跑模式一；直到手动停止或刷图器看门狗触发。")
+        else:
+            self._log(f"V4 已到开始赛事菜单，交给 {label} 跑模式一约 {farm_seconds / 60:.1f} 分钟。")
         started = time.monotonic()
         farm_watchdog_seconds = self._farm_watchdog_seconds()
         farm_deadline_logged = False
@@ -456,6 +459,10 @@ class V4Mode3Runner:
         )
         while runner.is_running() and not self._stop.is_set():
             elapsed = time.monotonic() - started
+            if farm_seconds is None:
+                if not self._sleep(0.25):
+                    break
+                continue
             if elapsed >= farm_seconds and not farm_deadline_logged:
                 farm_deadline_logged = True
                 self._log(
@@ -769,9 +776,11 @@ class V4Mode3Runner:
         return 0.85
 
     @staticmethod
-    def _farm_seconds(override: float | None) -> float:
-        if override is not None and override > 0:
-            return float(override)
+    def _farm_seconds(override: float | None) -> float | None:
+        if override is not None:
+            if override > 0:
+                return float(override)
+            return None
         return float(getattr(config, "COMBO_EVENTLAB_FARM_SECONDS", 90 * 60))
 
     def _farm_watchdog_seconds(self) -> float:
