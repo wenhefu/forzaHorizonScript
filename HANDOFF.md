@@ -1,5 +1,12 @@
 # Handoff - Forza Horizon 6 Helper
 
+## 2026-05-30 hotfix 25 - V4 GUI readability polish + tidy
+
+User feedback: GUI fonts too small / design too plain.
+- `v4/gui_v4.py`: bigger fonts (body 9->11, title 15->19, section 10->13, log mono 9->11), larger/bolder buttons, and a compact field layout -- label + entry + hint are clustered left in a packed row frame instead of a far-right hint with a big empty gap. Window stays resizable with the log box growing to fill (from hotfix 22). No behavior change; the runner wiring is untouched.
+- `.gitignore`: ignore `datasets/forza_ui/_pruned/` (the quarantined junk frames from hotfix 16) so it stops showing up in `git status`.
+- 127 passed. The packaged `dist\Forza6HelperV4GUI.exe` already reflects this (gui_v4.py was on disk when the hotfix-24 exe was rebuilt). If a future GUI swap to CustomTkinter is wanted (rounded/flat/dark, genuinely modern), that is a separate larger change + a new dependency + repackage.
+
 ## 2026-05-30 hotfix 24 - V4 fast-path recognition pacing
 
 User feedback after the latest GUI report: the V4 flow felt extremely slow ("like an old person looking at a phone"). The report confirmed the bottleneck was not YOLO inference: dense buy-grid/manufacturer full-frame OCR samples reached 4-7s each, and fixed post-button settle waits added more latency.

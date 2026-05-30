@@ -10,6 +10,7 @@ reports/
 runs/
 yolov8*.pt
 datasets/forza_ui/raw*/
+datasets/forza_ui/_pruned/
 datasets/forza_ui/images/
 datasets/forza_ui/labels/
 datasets/forza_ui/yolo/images/

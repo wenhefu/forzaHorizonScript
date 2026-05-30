@@ -30,11 +30,11 @@ COLORS = {
     "log_bg": "#071f1c",
     "log_text": "#d8e8df",
 }
-FONT = ("Microsoft YaHei UI", 9)
-FONT_TITLE = ("Microsoft YaHei UI", 15, "bold")
-FONT_SECTION = ("Microsoft YaHei UI", 10, "bold")
-FONT_SMALL = ("Microsoft YaHei UI", 8)
-FONT_MONO = ("Consolas", 9)
+FONT = ("Microsoft YaHei UI", 11)
+FONT_TITLE = ("Microsoft YaHei UI", 19, "bold")
+FONT_SECTION = ("Microsoft YaHei UI", 13, "bold")
+FONT_SMALL = ("Microsoft YaHei UI", 9)
+FONT_MONO = ("Consolas", 11)
 REPORT_PATH = Path("reports/v4_mode3_latest.json")
 
 
@@ -90,15 +90,20 @@ class V4App:
         except tk.TclError:
             pass
         style.configure(".", font=FONT)
-        style.configure("App.TButton", padding=(12, 7), background="#edf5ef", foreground=COLORS["text"])
-        style.configure("Primary.TButton", padding=(16, 8), background=COLORS["accent"], foreground="#ffffff")
+        style.configure("App.TButton", padding=(16, 12), background="#e3efe7",
+                        foreground=COLORS["text"], borderwidth=0, font=FONT)
+        style.map("App.TButton", background=[("active", "#d2e6d9"), ("disabled", "#eef3ef")])
+        style.configure("Primary.TButton", padding=(18, 13), background=COLORS["accent"],
+                        foreground="#ffffff", borderwidth=0, font=(FONT[0], FONT[1], "bold"))
         style.map("Primary.TButton", background=[("active", "#0d5b4d"), ("disabled", "#94aaa2")])
-        style.configure("App.TCheckbutton", background=COLORS["surface"], foreground=COLORS["text"])
-        style.configure("App.TRadiobutton", background=COLORS["surface"], foreground=COLORS["text"])
-        style.configure("App.TEntry", padding=(6, 4))
+        style.configure("App.TCheckbutton", background=COLORS["surface"], foreground=COLORS["text"], font=FONT)
+        style.map("App.TCheckbutton", background=[("active", COLORS["surface"])])
+        style.configure("App.TRadiobutton", background=COLORS["surface"], foreground=COLORS["text"], font=FONT)
+        style.map("App.TRadiobutton", background=[("active", COLORS["surface"])])
+        style.configure("App.TEntry", padding=(8, 7))
 
     def _card(self, parent, title):
-        outer = tk.Frame(parent, bg=COLORS["surface"], padx=12, pady=9,
+        outer = tk.Frame(parent, bg=COLORS["surface"], padx=18, pady=15,
                          highlightbackground=COLORS["border"], highlightthickness=1)
         tk.Label(outer, text=title, bg=COLORS["surface"], fg=COLORS["text"],
                  font=FONT_SECTION, anchor="w").grid(row=0, column=0, sticky="we")
@@ -142,7 +147,7 @@ class V4App:
             ("自动切回游戏前台(失焦时尝试)", self.auto_focus),
         ]:
             ttk.Checkbutton(body, text=text, variable=var, style="App.TCheckbutton").grid(
-                row=row, column=0, columnspan=3, sticky="w", pady=1)
+                row=row, column=0, columnspan=3, sticky="w", pady=5)
             row += 1
         fm = tk.Frame(body, bg=COLORS["surface"])
         fm.grid(row=row, column=0, columnspan=3, sticky="w", pady=(4, 0))
@@ -153,11 +158,13 @@ class V4App:
                         style="App.TRadiobutton").grid(row=0, column=2, sticky="w", padx=(8, 0))
 
     def _field(self, parent, row, label, var, unit):
-        tk.Label(parent, text=label, bg=COLORS["surface"], fg=COLORS["text"], font=FONT,
-                 anchor="w").grid(row=row, column=0, sticky="w", pady=4, padx=(0, 10))
-        ttk.Entry(parent, textvariable=var, width=10, style="App.TEntry").grid(row=row, column=1, sticky="w", pady=4)
-        tk.Label(parent, text=unit, bg=COLORS["surface"], fg=COLORS["muted"], font=FONT_SMALL,
-                 anchor="w").grid(row=row, column=2, sticky="w", pady=4, padx=(8, 0))
+        rowf = tk.Frame(parent, bg=COLORS["surface"])
+        rowf.grid(row=row, column=0, columnspan=3, sticky="we", pady=7)
+        tk.Label(rowf, text=label, bg=COLORS["surface"], fg=COLORS["text"], font=FONT,
+                 width=13, anchor="w").pack(side="left")
+        ttk.Entry(rowf, textvariable=var, width=7, style="App.TEntry").pack(side="left")
+        tk.Label(rowf, text=unit, bg=COLORS["surface"], fg=COLORS["muted"], font=FONT_SMALL,
+                 anchor="w").pack(side="left", padx=(14, 0))
 
     def _build_actions(self, shell):
         card = self._card(shell, "控制")
