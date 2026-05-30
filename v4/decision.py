@@ -709,23 +709,37 @@ def decide_farm_loop(v3: Any, graceful_exit: bool = False) -> V4Decision:
             max(confidence, 0.80),
         )
 
-    if screen in ("modal_warning", "confirm_restart") and looks_like_restart_event_modal(
-        _combined_text(v3, selected_item)
-    ):
+    if screen in ("modal_warning", "confirm_restart"):
+        modal_text = _combined_text(v3, selected_item)
+        is_restart = looks_like_restart_event_modal(modal_text)
         if graceful_exit:
+            # Leaving the farm: cancel any popup with B instead of confirming
+            # into a fresh race; the next race_result frame exits with A.
             return V4Decision(
                 "farm_cancel_restart",
                 "B",
-                "平滑退出中,按 B 取消重开,等下次结算页用 A 退出。",
+                "平滑退出中,遇到弹窗按 B 取消,不确认进入新比赛。",
                 "按后应回到结算页或比赛。",
                 max(confidence, 0.74),
             )
+        # In the farm loop a popup is almost always a start/restart/confirm gate
+        # (重新开始赛事 / 确认开始 / 车辆或赛事提示). Press A to proceed into the
+        # race rather than waiting forever. Previously ONLY the explicit
+        # 重新开始赛事 modal was handled, so any other popup at the start fell
+        # through to farm_wait_unknown and the runner just waited -- the race
+        # never auto-started ("买完车后不会自动刷图"). Verify-after-press keeps it
+        # safe: if the popup persists the next frame re-decides, and the
+        # mode-three farm watchdog stops a genuinely stuck modal.
         return V4Decision(
-            "farm_confirm_restart",
+            "farm_confirm_restart" if is_restart else "farm_confirm_modal",
             "A",
-            "重开确认框,按 A 确认重新开始赛事。",
-            "按后应进入 loading_transition 或 race_hud。",
-            max(confidence, 0.80),
+            (
+                "重开确认框,按 A 确认重新开始赛事。"
+                if is_restart
+                else f"刷分中遇到弹窗(焦点/文本={selected_item or modal_text or '空'}),按 A 确认进入比赛。"
+            ),
+            "按后应进入 loading_transition 或 race_hud;若弹窗仍在,下一帧重新识别再决定。",
+            max(confidence, 0.80 if is_restart else 0.74),
         )
 
     if screen == "post_race_next":

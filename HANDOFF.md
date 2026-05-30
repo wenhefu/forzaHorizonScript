@@ -1,5 +1,20 @@
 # Handoff - Forza Horizon 6 Helper
 
+## 2026-05-30 hotfix 26 - V4 mode-three end-to-end fixes + 16:9 window normalize
+
+Co-op debugging of a full buy+farm loop surfaced four real bugs (all fixed, each with a regression test) plus a new robustness feature. The whole mode-three round now runs end-to-end (buy 22B -> mastery -> points exhausted -> EventLab -> vision farm -> graceful exit) and loops.
+
+1. **Buy phase never bought (the car).** `_recognize_buy_monitor` used `full_ocr=False` (hotfix 24's speed-up). Dense car grids (制造商列表/斯巴鲁车展) share the card-grid structure of `eventlab_my_cars`, so without OCR text they were mislabelled `eventlab_my_cars` -> `_buy_phase_can_handoff_to_v4` fired -> BuyCarRunner was stopped mid-purchase. Fix: the buy monitor uses **full OCR** again (it only ticks every watchdog/10s <= 8s, so the cost is negligible). `v4/mode3_runner.py`.
+2. **`loop_rounds=0` stopped after one round.** A loop needs the post-farm cleanup to return to a known pause-menu start; if `刷图结束后回收尾` was unchecked, `run_loop` silently degraded to a single round. Fix: a loop now **auto-enables `exit_after_farm`** (runner + GUI auto-ticks the box + hint "0=无限循环(自动开回收尾)"). `v4/mode3_runner.py`, `v4/gui_v4.py`.
+3. **Farm never auto-started after a non-restart popup.** `decide_farm_loop` only pressed A on the explicit 重新开始赛事 modal; any other `modal_warning` fell to `farm_wait_unknown` and the runner just waited forever. Fix: **any farm popup -> press A to proceed** into the race (B only while gracefully exiting); the confirm also opens the launch-throttle window. `v4/decision.py`, `v4/farm_runner.py`.
+4. **Navigation false "arrived" -> car left idling in free roam.** After backing out of the buy flow (B B B) the player lands in free roam at the festival start line. V3 reads it as `unknown`; V1's fixed-fraction smart detector mis-reads the checkered start line as `RACING`; `_smart_state_confirms_eventlab` then confirmed arrival on smart=RACING+`unknown` and handed off to the farm, which sat idle. Fix: **"arrived at racing" now requires a real V3 `race_hud`** (dropped `unknown`/`loading` from the racing set), and a new `_decide` rule turns "V1 says RACING but V3 has no race_hud" into **open the pause menu (Menu) and keep navigating**. The PRESTART fallback (V3 misses the start menu, V1 sees it) is kept. `v4/mode3_runner.py`.
+
+**New feature - normalize the game window to 16:9 (`window_util.py` + GUI button "把地平线调成 16:9").** The buy phase and the farm smart-hint still partly rely on V1's 16:9 fixed-fraction detector, which is exactly what broke on a friend's ultrawide (带鱼屏). Pure Win32 `SetWindowPos` (no inject/hook/focus-steal; `SWP_NOACTIVATE`) resizes the game's CLIENT area to a chosen 16:9 preset (1280x720 / 1600x900 / 1920x1080, default 1600x900), so the fixed-fraction detection sees the same aspect on any monitor. Verified live: Forza accepted the resize (1174x660 -> 1600x900, aspect 1.778). Requires the game in windowed/borderless mode (it reports clearly if the game is fullscreen-exclusive). Top-left is preserved so the title bar never lands off-screen (multi-monitor safe).
+
+**GUI defaults** now match the validated run: `跑图=3`, `完整循环=0`(无限), `跳过买车=off`, `刷图结束后回收尾=on`, `自动切回前台=on`, 刷图引擎=视觉制导.
+
+133 passed, 22 skipped. `dist\Forza6HelperV4GUI.exe` rebuilt from this tree.
+
 ## 2026-05-30 hotfix 25 - V4 GUI readability polish + tidy
 
 User feedback: GUI fonts too small / design too plain.

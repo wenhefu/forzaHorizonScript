@@ -16,6 +16,7 @@ from tkinter import scrolledtext, ttk
 
 import config
 import focus
+import window_util
 from driver_check import check_vigembus, open_vigembus_download
 
 COLORS = {
@@ -56,15 +57,16 @@ class V4App:
 
         # options
         self.farm_minutes = tk.StringVar(value="3")
-        self.loop_rounds = tk.StringVar(value="1")
+        self.loop_rounds = tk.StringVar(value="0")
         self.max_failures = tk.StringVar(value="3")
         self.watchdog_secs = tk.StringVar(value="180")
         self.startup_delay = tk.StringVar(value="4")
-        self.skip_buy = tk.BooleanVar(value=True)
+        self.skip_buy = tk.BooleanVar(value=False)
         self.skip_farm = tk.BooleanVar(value=False)
         self.exit_after_farm = tk.BooleanVar(value=True)
         self.auto_focus = tk.BooleanVar(value=True)
         self.farm_mode = tk.StringVar(value="vision")
+        self.win_target = tk.StringVar(value=window_util.DEFAULT_PRESET)
         self.driver_status = tk.StringVar(value="正在检查虚拟手柄驱动...")
         self.status_var = tk.StringVar(value="正在加载识别模型...")
 
@@ -135,7 +137,7 @@ class V4App:
         body = card.body
         body.columnconfigure(1, weight=1)
         self._field(body, 0, "跑图时间(分钟)", self.farm_minutes, "每轮刷图;0=一直跑")
-        self._field(body, 1, "完整循环轮数", self.loop_rounds, "1=一轮;0=一直买车+刷图")
+        self._field(body, 1, "完整循环轮数", self.loop_rounds, "1=一轮;0=无限循环(自动开回收尾)")
         self._field(body, 2, "连续失败上限", self.max_failures, "循环时连续失败超过此次数才停")
         self._field(body, 3, "看门狗(秒)", self.watchdog_secs, "某阶段卡死超过此秒数自动停")
         self._field(body, 4, "启动倒计时(秒)", self.startup_delay, "点开始后留时间切回游戏")
@@ -178,8 +180,18 @@ class V4App:
         self.stop_btn.grid(row=0, column=1, sticky="we", padx=6)
         ttk.Button(body, text="切回游戏", command=self.activate_game, style="App.TButton").grid(row=0, column=2, sticky="we", padx=6)
         ttk.Button(body, text="打开报告", command=self.open_report, style="App.TButton").grid(row=0, column=3, sticky="we", padx=(6, 0))
+        # Normalize the game window to 16:9 so the fixed-fraction detection works the
+        # same on any monitor (incl. ultrawide 带鱼屏). External resize only -- no
+        # injection/hook/focus-steal; needs the game in windowed/borderless mode.
+        winrow = tk.Frame(body, bg=COLORS["surface"])
+        winrow.grid(row=1, column=0, columnspan=4, sticky="we", pady=(8, 0))
+        tk.Label(winrow, text="地平线窗口:", bg=COLORS["surface"], fg=COLORS["text"], font=FONT).pack(side="left")
+        ttk.Combobox(winrow, textvariable=self.win_target, values=list(window_util.PRESETS_16_9.keys()),
+                     width=10, state="readonly").pack(side="left", padx=(8, 8))
+        ttk.Button(winrow, text="把地平线调成 16:9", command=self.resize_game_window,
+                   style="App.TButton").pack(side="left")
         tk.Label(body, textvariable=self.status_var, bg=COLORS["surface"], fg=COLORS["muted"],
-                 font=FONT_SMALL, anchor="w").grid(row=1, column=0, columnspan=4, sticky="w", pady=(6, 0))
+                 font=FONT_SMALL, anchor="w").grid(row=2, column=0, columnspan=4, sticky="w", pady=(6, 0))
 
     def _build_log(self, shell):
         card = self._card(shell, "运行日志")
@@ -233,6 +245,9 @@ class V4App:
             f"开始:farm_mode={self.farm_mode.get()} 跑图={farm_minutes}分钟 完整循环={loop_rounds}轮 看门狗={watchdog:.0f}s "
             f"跳过买车={self.skip_buy.get()} 跳过刷图={self.skip_farm.get()}"
         )
+        if loop_rounds != 1 and not self.exit_after_farm.get():
+            self.exit_after_farm.set(True)
+            self._log("注意: 完整循环需要刷图后收尾才能进入下一轮；已自动为你勾上“刷图结束后回收尾到暂停菜单”。")
         if loop_rounds != 1 and self.skip_buy.get():
             self._log("注意: 你启用了外层循环但勾选了跳过买车；循环不会重新买车/加点。")
         if loop_rounds != 1 and farm_minutes <= 0:
@@ -269,6 +284,17 @@ class V4App:
                 self._log("还没有报告文件(跑一轮后生成 reports/v4_mode3_latest.json)。")
         except Exception as exc:
             self._log(f"无法打开报告:{exc}")
+
+    def resize_game_window(self):
+        # Force the game window's render area to a 16:9 preset so the
+        # fixed-fraction detection works the same on any monitor (esp. ultrawide).
+        try:
+            ok, msg = window_util.resize_to_16_9(
+                title_substr=config.GAME_TITLE, preset=self.win_target.get()
+            )
+            self._log(("窗口已调整:" if ok else "窗口未调整:") + msg)
+        except Exception as exc:
+            self._log(f"调整地平线窗口出错:{exc}")
 
     def _refresh_driver(self):
         try:

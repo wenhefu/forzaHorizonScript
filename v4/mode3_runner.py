@@ -239,16 +239,16 @@ class V4Mode3Runner:
                 require_foreground=require_foreground,
             )
         if not exit_after_farm:
-            self._log("V4 完整循环需要刷图后收尾；当前关闭收尾，所以只跑一轮。")
-            return self.run_once(
-                startup_delay=startup_delay,
-                farm_seconds=farm_seconds,
-                run_buy=run_buy,
-                run_farm=run_farm,
-                exit_after_farm=exit_after_farm,
-                auto_focus=auto_focus,
-                require_foreground=require_foreground,
+            # A multi-round loop MUST return to a known page (the pause menu)
+            # between rounds, otherwise the next round's buy phase has no clean
+            # start point. Rather than silently degrading to a single round
+            # (which surprised the user: loop_rounds=0 stopped after one round),
+            # auto-enable the post-farm cleanup and keep looping.
+            self._log(
+                "V4 完整循环需要刷图后收尾才能回到买车起点；"
+                "已自动开启“刷图结束后回收尾到暂停菜单”以支持连续循环。"
             )
+            exit_after_farm = True
         if self._farm_seconds(farm_seconds) is None:
             self._log("V4 完整循环已启用，但刷图时间=0 表示本轮无限刷；外层不会进入下一轮，直到你停止或刷图器退出。")
         if not run_buy:
@@ -714,6 +714,24 @@ class V4Mode3Runner:
                 "按后必须重新识别，不再显示 controller_disconnected。",
                 max(float(snapshot.smart_confidence), 0.76),
             )
+        # V4 robustness rule: trust V3 vision -- not V1's fixed-fraction detector --
+        # for "we have arrived at the race". If V1 smart says RACING but V3 does NOT
+        # see a real race_hud (it sees free roam / idle / unknown), it is the
+        # festival start line mis-read as racing. Do NOT hand off to the farm; open
+        # the pause menu and keep navigating to EventLab.
+        if snapshot.smart_state == STATE_RACING and snapshot.v3.screen in (
+            "unknown",
+            "idle_showcase",
+            "free_roam_hud",
+        ):
+            return V4Decision(
+                "open_pause_from_world",
+                "Menu",
+                "V1 误判为比赛中,但 V3 没看到真正的 race_hud,多半是自由漫游(嘉年华起跑线)被误读;"
+                "按 Menu 打开暂停菜单继续导航,不交给刷图。",
+                "按后必须重新识别到 pause_* 或 pause_menu;未变化则不连续盲按。",
+                max(float(snapshot.v3.confidence), 0.58),
+            )
         if self._smart_state_confirms_eventlab(snapshot):
             return V4Decision(
                 "arrived_race_hud" if snapshot.smart_state == STATE_RACING else "arrived_race_menu",
@@ -799,16 +817,26 @@ class V4Mode3Runner:
         return snapshot
 
     def _recognize_buy_monitor(self) -> V4Snapshot:
-        """Fast semantic heartbeat while V1 BuyCarRunner is doing the work.
+        """Semantic heartbeat while V1 BuyCarRunner does the actual buying.
 
-        The monitor only needs to catch handoff pages and obvious stalls. Full
-        OCR on dense car grids can take seconds, so use detector/rules plus
-        small-region OCR here and keep full OCR for the actual V4 route steps.
-        The TypeError fallback preserves older unit-test monkeypatches that
-        replace ``_recognize`` with a no-argument lambda.
+        This MUST use full OCR. The dense car grids (制造商列表 / 斯巴鲁车展 /
+        购买车辆页) are visually almost identical to the EventLab car/events grid,
+        so a detector/rules-only frame routinely mislabels them as an
+        ``eventlab_my_cars`` / ``eventlab_events`` page (they share the same
+        card-grid structure -- see ``v3/hybrid.py``). The monitor then thinks
+        BuyCarRunner wandered into EventLab and aborts the purchase mid-flow, so
+        the car never gets bought. Full OCR reads 购买车辆/制造商/斯巴鲁/车展 and
+        classifies these as buy-flow screens (``vehicle_buy_grid`` /
+        ``manufacturer_grid``), which are in ``_buy_phase_owned_screens`` and
+        therefore never trigger a handoff; it also keeps the stall token honest
+        as the highlighted car changes. The monitor only ticks every
+        ``_child_watchdog_interval`` (watchdog/10, capped at 8s), so full OCR
+        here is essentially free. The TypeError fallback preserves older
+        unit-test monkeypatches that replace ``_recognize`` with a no-argument
+        lambda.
         """
         try:
-            return self._recognize(full_ocr=False, region_ocr=True)
+            return self._recognize(full_ocr=True, region_ocr=True)
         except TypeError as exc:
             if "unexpected keyword" not in str(exc):
                 raise
@@ -1000,10 +1028,17 @@ class V4Mode3Runner:
         if screen.startswith("pause_") or screen in {"pause_menu", "modal_warning", "controller_disconnected"}:
             return False
         if smart_state in {STATE_PRESTART, STATE_PRESTART_WRONG_SELECTION}:
+            # PRESTART may still confirm on an ambiguous frame: V3 sometimes misses
+            # the start menu while V1 correctly sees 开始赛事 focus. Free roam rarely
+            # mis-reads as the start-menu layout, so this fallback is low-risk.
             return screen in {"unknown", "loading_transition", "race_menu", "prestart"}
         if not include_racing:
             return False
-        return screen in {"unknown", "loading_transition", "race_hud"}
+        # RACING must be confirmed by a REAL V3 race_hud. smart=RACING on `unknown`
+        # is the festival start-line free-roam misread that handed off to the farm
+        # prematurely (the car was left idling in free roam). The _decide rule above
+        # turns that same misread into "open the pause menu and keep navigating".
+        return screen == "race_hud"
 
     def _buy_phase_needs_driving_disambiguation(self, snapshot: V4Snapshot) -> bool:
         screen = str(getattr(snapshot.v3, "screen", "") or "")

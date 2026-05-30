@@ -172,7 +172,7 @@ class VisionFarmRunner:
 
     @staticmethod
     def _settle_for(name: str) -> float:
-        if name in ("farm_start_race", "farm_confirm_restart"):
+        if name in ("farm_start_race", "farm_confirm_restart", "farm_confirm_modal"):
             return 1.15
         if name in ("farm_dismiss_controller", "farm_restart_results", "farm_graceful_exit_results"):
             return 0.9
@@ -427,7 +427,11 @@ class VisionFarmRunner:
                     self.on_log(f"视觉刷图：第 {self.laps} 圈完成。")
                 self.on_log(f"视觉刷图按键：{decision.button} -> {button}；{name}。")
                 pad.tap(button, hold=0.15)
-                if name == "farm_start_race":
+                if name in ("farm_start_race", "farm_confirm_modal"):
+                    # Confirming a start popup enters a fresh race just like
+                    # farm_start_race, so open the launch window: hold throttle
+                    # through the countdown/start-line frames that mis-read as
+                    # race_menu/loading. (Never DpadUp -- that opens Photo Mode.)
                     launching = True
                     launch_since = time.monotonic()
                 if name == "farm_graceful_exit_results" or (decision.terminal and self._graceful.is_set()):

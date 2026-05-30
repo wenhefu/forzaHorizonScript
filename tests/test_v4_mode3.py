@@ -81,6 +81,17 @@ def test_farm_loop_confirm_restart_modal_or_cancel_when_graceful():
     assert cancel.name == "farm_cancel_restart" and normalize_button(cancel.button) == "b"
 
 
+def test_farm_loop_confirms_unknown_popup_to_proceed_into_race():
+    # Regression (2026-05-30): a popup that is NOT the explicit 重新开始赛事 modal
+    # used to fall through to farm_wait_unknown, so the runner just waited and the
+    # race never auto-started after buying ("买完车后不会自动刷图"). Any farm-context
+    # popup should press A to proceed into the race (B only while gracefully exiting).
+    proceed = decide_farm_loop(fake_v3("modal_warning", selected_item="赛事提示"), graceful_exit=False)
+    assert proceed.name == "farm_confirm_modal" and normalize_button(proceed.button) == "a"
+    leaving = decide_farm_loop(fake_v3("modal_warning", selected_item="赛事提示"), graceful_exit=True)
+    assert normalize_button(leaving.button) == "b"
+
+
 def test_farm_loop_post_race_is_terminal_only_when_graceful():
     normal = decide_farm_loop(fake_v3("post_race_next"), graceful_exit=False)
     assert normal.name == "farm_leave_post_race" and normalize_button(normal.button) == "b"
@@ -123,14 +134,22 @@ def test_v4_runner_defaults_to_vision_farm_and_shares_recognizer():
     assert runner.vision_farm_runner.recognizer is runner.recognizer
 
 
-def test_buy_monitor_uses_fast_recognition_flags():
+def test_buy_monitor_uses_full_ocr_so_car_grids_are_not_misread():
+    # Regression (2026-05-30): the buy monitor MUST use full OCR. With
+    # full_ocr=False the detector/rules misread dense car grids
+    # (制造商列表 / 斯巴鲁车展 / 购买车辆页) as eventlab_my_cars -- they share the
+    # same card-grid structure -- which tripped _buy_phase_can_handoff_to_v4 and
+    # aborted BuyCarRunner mid-flow, so the car was never bought (user hit this
+    # twice). Full OCR keeps them classified as vehicle_buy_grid/manufacturer_grid
+    # (owned screens -> no handoff). The monitor only ticks every ~watchdog/10s,
+    # so full OCR here is essentially free. Do NOT "speed this up" to full_ocr=False.
     runner = V4Mode3Runner.__new__(V4Mode3Runner)
     snapshot = SimpleNamespace(v3=fake_v3("vehicle_buy_grid"), smart_state="", elapsed_ms=1.0)
     calls = []
     runner._recognize = lambda **kwargs: (calls.append(kwargs) or snapshot)
 
     assert V4Mode3Runner._recognize_buy_monitor(runner) is snapshot
-    assert calls == [{"full_ocr": False, "region_ocr": True}]
+    assert calls == [{"full_ocr": True, "region_ocr": True}]
 
 
 def test_buy_monitor_accepts_legacy_no_arg_recognize_mocks():
@@ -202,6 +221,31 @@ def test_run_loop_stops_after_max_consecutive_failures():
     )
     assert ok is False
     assert len(recovered) == 2  # recovers after failures 1 and 2; the 3rd failure stops it
+
+
+def test_run_loop_auto_enables_exit_after_farm_instead_of_degrading():
+    # Regression (2026-05-30): loop_rounds=0 (infinite) with the post-farm
+    # cleanup unchecked used to silently degrade to a SINGLE round and stop,
+    # which surprised the user ("不是0吗 一直循环吗"). A loop MUST auto-enable
+    # exit_after_farm (so each round returns to a known pause-menu start) and
+    # keep looping instead of running once.
+    runner = V4Mode3Runner.__new__(V4Mode3Runner)
+    runner._stop = threading.Event()
+    runner.report = SimpleNamespace(stopped_reason="ok")
+    runner._log = lambda m: None
+    runner._sleep = lambda s: True
+    runner._pad_provider = lambda: None
+    runner._recover_between_rounds = lambda pad: True
+    runner._loop_rounds = lambda v: 2
+    runner._farm_seconds = lambda f: 180.0
+    seen = []
+    runner.run_once = lambda **k: (seen.append(k.get("exit_after_farm")) or True)
+    ok = V4Mode3Runner.run_loop(
+        runner, run_buy=True, run_farm=True, exit_after_farm=False, loop_rounds=2, max_consecutive_failures=3
+    )
+    assert ok is True
+    assert len(seen) == 2  # looped twice, did NOT degrade to a single round
+    assert all(v is True for v in seen)  # cleanup auto-enabled so rounds can chain
 
 
 def test_buy_loop_terminal_on_skill_points_exhausted():
@@ -512,6 +556,33 @@ def test_runner_allows_smart_prestart_only_when_v3_is_ambiguous_or_race_menu():
     decision = V4Mode3Runner._decide(runner, start_event_menu, RouteContext())
     assert decision.name == "arrived_race_menu"
     assert decision.terminal
+
+
+def test_decide_opens_pause_when_v1_says_racing_but_v3_not_race_hud():
+    # Regression (2026-05-30): after buying, the back-out (B B B) landed in free
+    # roam at the festival start line. V3 read it as `unknown` while V1 smart
+    # mis-read it as RACING, so navigation falsely "arrived at race_hud" and handed
+    # off to the farm -- the car was left idling in free roam ("买完车后不会自动刷图").
+    # Now V1 smart=RACING WITHOUT a real V3 race_hud must NOT confirm arrival;
+    # instead open the pause menu (Menu) and keep navigating to EventLab.
+    runner = V4Mode3Runner.__new__(V4Mode3Runner)
+    for screen in ("unknown", "free_roam_hud", "idle_showcase"):
+        snap = SimpleNamespace(
+            v3=fake_v3(screen, selected_item="", confidence=0.4),
+            smart_state="racing",
+            smart_confidence=0.9,
+        )
+        assert not V4Mode3Runner._smart_state_confirms_eventlab(runner, snap), screen
+        d = V4Mode3Runner._decide(runner, snap, RouteContext())
+        assert d.name == "open_pause_from_world", screen
+        assert normalize_button(d.button) == "start" and not d.terminal
+    # A REAL V3 race_hud + smart=RACING still confirms we are genuinely racing.
+    racing = SimpleNamespace(
+        v3=fake_v3("race_hud", selected_item=""), smart_state="racing", smart_confidence=0.9
+    )
+    assert V4Mode3Runner._smart_state_confirms_eventlab(runner, racing)
+    d2 = V4Mode3Runner._decide(runner, racing, RouteContext())
+    assert d2.name == "arrived_race_hud" and d2.terminal
 
 
 def test_farm_phase_watchdog_stops_stuck_smart_runner():
