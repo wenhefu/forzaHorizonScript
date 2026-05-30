@@ -43,7 +43,10 @@ class V4App:
         self.root = root
         root.title("地平线6 V4 视觉制导模式三")
         root.configure(bg=COLORS["bg"])
-        root.resizable(False, False)
+        root.resizable(True, True)
+        root.minsize(520, 560)
+        root.rowconfigure(0, weight=1)
+        root.columnconfigure(0, weight=1)
         root.protocol("WM_DELETE_WINDOW", self.on_close)
 
         self._configure_styles()
@@ -54,6 +57,7 @@ class V4App:
         # options
         self.farm_minutes = tk.StringVar(value="3")
         self.loop_rounds = tk.StringVar(value="1")
+        self.max_failures = tk.StringVar(value="3")
         self.watchdog_secs = tk.StringVar(value="180")
         self.startup_delay = tk.StringVar(value="4")
         self.skip_buy = tk.BooleanVar(value=True)
@@ -66,6 +70,8 @@ class V4App:
 
         shell = tk.Frame(root, bg=COLORS["bg"], padx=14, pady=12)
         shell.grid(row=0, column=0, sticky="nsew")
+        shell.columnconfigure(0, weight=1)
+        shell.rowconfigure(3, weight=1)  # 运行日志这一行随窗口拉伸放大
 
         self._build_header(shell)
         self._build_options(shell)
@@ -96,8 +102,11 @@ class V4App:
                          highlightbackground=COLORS["border"], highlightthickness=1)
         tk.Label(outer, text=title, bg=COLORS["surface"], fg=COLORS["text"],
                  font=FONT_SECTION, anchor="w").grid(row=0, column=0, sticky="we")
+        outer.columnconfigure(0, weight=1)
+        outer.rowconfigure(1, weight=1)
         body = tk.Frame(outer, bg=COLORS["surface"])
-        body.grid(row=1, column=0, sticky="we", pady=(6, 0))
+        body.grid(row=1, column=0, sticky="nsew", pady=(6, 0))
+        body.columnconfigure(0, weight=1)
         outer.body = body
         return outer
 
@@ -122,9 +131,10 @@ class V4App:
         body.columnconfigure(1, weight=1)
         self._field(body, 0, "跑图时间(分钟)", self.farm_minutes, "每轮刷图;0=一直跑")
         self._field(body, 1, "完整循环轮数", self.loop_rounds, "1=一轮;0=一直买车+刷图")
-        self._field(body, 2, "看门狗(秒)", self.watchdog_secs, "某阶段卡死超过此秒数自动停")
-        self._field(body, 3, "启动倒计时(秒)", self.startup_delay, "点开始后留时间切回游戏")
-        row = 4
+        self._field(body, 2, "连续失败上限", self.max_failures, "循环时连续失败超过此次数才停")
+        self._field(body, 3, "看门狗(秒)", self.watchdog_secs, "某阶段卡死超过此秒数自动停")
+        self._field(body, 4, "启动倒计时(秒)", self.startup_delay, "点开始后留时间切回游戏")
+        row = 5
         for text, var in [
             ("跳过买车阶段(从当前页直接导航去刷图)", self.skip_buy),
             ("跳过刷图阶段(只到开始赛事菜单)", self.skip_farm),
@@ -166,11 +176,12 @@ class V4App:
 
     def _build_log(self, shell):
         card = self._card(shell, "运行日志")
-        card.grid(row=3, column=0, sticky="we")
-        self.log = scrolledtext.ScrolledText(card.body, width=74, height=14, state="disabled",
+        card.grid(row=3, column=0, sticky="nsew")
+        card.body.rowconfigure(0, weight=1)
+        self.log = scrolledtext.ScrolledText(card.body, width=74, height=12, state="disabled",
                                              font=FONT_MONO, bg=COLORS["log_bg"], fg=COLORS["log_text"],
                                              relief="flat", bd=0, padx=10, pady=8)
-        self.log.grid(row=0, column=0, sticky="we")
+        self.log.grid(row=0, column=0, sticky="nsew")
 
     # -- runner wiring ------------------------------------------------------
     def _log(self, msg: str):
@@ -205,6 +216,7 @@ class V4App:
             return
         farm_minutes = self._read_float(self.farm_minutes, 3.0)
         loop_rounds = int(self._read_float(self.loop_rounds, 1.0))
+        max_fail = int(self._read_float(self.max_failures, 3.0))
         farm_seconds = farm_minutes * 60.0 if farm_minutes > 0 else 0.0
         watchdog = max(20.0, self._read_float(self.watchdog_secs, 180.0))
         startup = max(0.0, self._read_float(self.startup_delay, 4.0))
@@ -228,6 +240,7 @@ class V4App:
             auto_focus=self.auto_focus.get(),
             require_foreground=True,
             loop_rounds=loop_rounds,
+            max_consecutive_failures=max_fail,
         )
 
     def on_stop(self):

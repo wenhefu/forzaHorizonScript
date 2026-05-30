@@ -1,5 +1,23 @@
 # Handoff - Forza Horizon 6 Helper
 
+## 2026-05-30 hotfix 22 - V4 GUI, resilient loop recovery, standalone packaging
+
+Builds on hotfix 21's outer loop.
+
+V4 runner GUI (run it yourself so Forza stays foreground -- avoids the background-launch focus problem):
+- `v4/gui_v4.py` + `v4_gui_launcher.py`: a V1-style tkinter GUI driving `V4Mode3Runner`. Options: 跑图时间(分钟), 完整循环轮数, 连续失败上限, 看门狗(秒), 启动倒计时, checkboxes (跳过买车/跳过刷图/刷图后收尾/自动切回前台), 刷图引擎 vision|smart. Live log, ViGEmBus driver status, 开始/停止/切回游戏/打开报告. Single-instance guard (`Local\\Forza6HelperV4`) + `multiprocessing.freeze_support()` so only one window opens (a 2nd pythonw at launch is an onnx worker, not a window).
+- Run: `.venv\Scripts\pythonw.exe v4_gui_launcher.py`.
+
+Resilient outer loop (a failed round no longer kills the whole loop):
+- `mode3_runner.run_loop(..., max_consecutive_failures=3)`: on a failed round it calls `_recover_between_rounds(pad)`, which backs out to a safe menu using ONLY B / Menu (and A for the controller modal) -- it never blind-presses A on grids/cards (that is what risks a mis-buy or a Photo-Mode-style mis-trigger) -- then retries the round. It stops only after `max_consecutive_failures` consecutive failures. `start()` threads the param; the GUI exposes it as 连续失败上限. 2 new tests (retry-then-complete, stop-after-max). 122 passed.
+- For continuous 买车+加点+刷图 loops: 完整循环轮数=0, uncheck 跳过买车, finite 跑图时间, keep 刷图后收尾. For the most robust unattended farming: check 跳过买车 + 跑图时间=0 (one leg, vision farm restarts races forever).
+
+Standalone packaging (runs on other PCs without Python):
+- `Forza6HelperV4GUI.spec` + `build_v4_gui.bat` -> `dist\Forza6HelperV4GUI.exe`. Onefile, `console=False` (windowed), bundles `v3/models` + onnxruntime + rapidocr + vgamepad, excludes torch/ultralytics. The target PC still needs the ViGEmBus driver; the GUI checks it on startup and opens the install page if missing.
+- Build: `build_v4_gui.bat` (or `pyinstaller --clean --noconfirm Forza6HelperV4GUI.spec`).
+
+No V1 stable main-flow files were edited.
+
 ## 2026-05-30 hotfix 21 - V4 full mode-three outer loop control
 
 Clarification from user: after the 3-minute farm leg, "loop" should mean returning to buy/skill-points and then farming again, not only restarting races inside the farm runner.

@@ -125,6 +125,7 @@ class V4Mode3Runner:
         auto_focus: bool = False,
         require_foreground: bool = True,
         loop_rounds: int = 1,
+        max_consecutive_failures: int = 3,
     ) -> None:
         if self.is_running():
             self._log("V4 已在运行，忽略重复启动。")
@@ -142,7 +143,7 @@ class V4Mode3Runner:
                 "exit_after_farm": exit_after_farm,
                 "auto_focus": auto_focus,
                 "require_foreground": require_foreground,
-                **({"loop_rounds": loop_rounds} if use_loop else {}),
+                **({"loop_rounds": loop_rounds, "max_consecutive_failures": max_consecutive_failures} if use_loop else {}),
             },
             name="v4-mode3-runner",
             daemon=True,
@@ -222,6 +223,7 @@ class V4Mode3Runner:
         auto_focus: bool = False,
         require_foreground: bool = True,
         loop_rounds: int = 0,
+        max_consecutive_failures: int = 3,
     ) -> bool:
         rounds = self._loop_rounds(loop_rounds)
         round_label = "无限" if rounds is None else str(rounds)
@@ -253,14 +255,20 @@ class V4Mode3Runner:
             self._log("V4 完整循环当前勾选了跳过买车；下一轮也不会重新买车/加点，只会从当前状态续接导航。")
 
         completed_rounds = 0
+        consecutive_failures = 0
+        max_failures = max(1, int(max_consecutive_failures))
+        attempt_no = 0
         while rounds is None or completed_rounds < rounds:
             if self._stop.is_set():
                 self._log("V4 完整循环收到停止请求，结束外层循环。")
                 return completed_rounds > 0
-            current = completed_rounds + 1
-            self._log(f"V4 完整模式三循环：第 {current}/{round_label} 轮开始。")
+            attempt_no += 1
+            self._log(
+                f"V4 完整模式三循环：第 {completed_rounds + 1}/{round_label} 轮开始"
+                f"(本轮第 {attempt_no} 次尝试)。"
+            )
             ok = self.run_once(
-                startup_delay=startup_delay if current == 1 else 0.0,
+                startup_delay=startup_delay if attempt_no == 1 else 0.0,
                 farm_seconds=farm_seconds,
                 run_buy=run_buy,
                 run_farm=run_farm,
@@ -269,9 +277,25 @@ class V4Mode3Runner:
                 require_foreground=require_foreground,
             )
             reason = self.report.stopped_reason
-            self._log(f"V4 完整模式三循环：第 {current}/{round_label} 轮结束，结果={reason}。")
+            self._log(f"V4 完整模式三循环：本轮结束，结果={reason}，ok={ok}。")
+            if self._stop.is_set():
+                return completed_rounds > 0
             if not ok:
-                return False
+                consecutive_failures += 1
+                self._log(
+                    f"V4 完整循环：本轮失败({reason})，连续失败 {consecutive_failures}/{max_failures}。"
+                )
+                if consecutive_failures >= max_failures:
+                    self._log(f"V4 完整循环：连续失败 {max_failures} 次,停止外层循环等待人工检查。")
+                    return completed_rounds > 0
+                pad = self._pad_provider()
+                if not self._recover_between_rounds(pad):
+                    self._log("V4 完整循环：退回安全菜单失败,停止外层循环。")
+                    return completed_rounds > 0
+                if not self._sleep(3.0):
+                    return completed_rounds > 0
+                continue
+            consecutive_failures = 0
             completed_rounds += 1
             if rounds is not None and completed_rounds >= rounds:
                 break
@@ -280,6 +304,48 @@ class V4Mode3Runner:
 
         self._log(f"V4 完整模式三循环完成：共 {completed_rounds} 轮。")
         return completed_rounds > 0
+
+    def _recover_between_rounds(self, pad) -> bool:
+        """After a failed round, gently back out to a safe menu using only B /
+        Menu (and A only for the controller modal) so the next round can start.
+
+        It never blind-presses A on grids/cards -- that is exactly what risks a
+        mis-buy or a Photo-Mode-style mis-trigger. B backs out one level
+        everywhere; Menu opens the pause menu from free roam.
+        """
+        self._log("V4 循环恢复：用 B/Menu 退回暂停/自由漫游,准备重开下一轮。")
+        safe = {"free_roam_hud", "idle_showcase", "race_menu", "pause_menu"}
+        for _attempt in range(1, 9):
+            if self._stop.is_set():
+                return False
+            try:
+                snapshot = self._recognize()
+            except Exception:
+                if not self._sleep(0.8):
+                    return False
+                continue
+            screen = str(snapshot.v3.screen)
+            if screen.startswith("pause_") or screen in safe:
+                self._log(f"V4 循环恢复：已回到 {screen},可以重开下一轮。")
+                return True
+            if screen == "controller_disconnected":
+                if not self._tap(pad, "a", after=1.0):
+                    return False
+                continue
+            if screen == "free_roam_hud":
+                if not self._tap(pad, "start", after=1.2):
+                    return False
+                continue
+            if screen == "loading_transition":
+                if not self._sleep(1.0):
+                    return False
+                continue
+            if not self._tap(pad, "b", after=1.2):
+                return False
+        if not self._tap(pad, "start", after=1.4):
+            return False
+        screen = str(self._recognize().v3.screen)
+        return screen.startswith("pause_") or screen in safe
 
     def _run_buy_phase(self, auto_focus: bool, require_foreground: bool) -> bool:
         self._log("V4 买车/加点阶段交给 V1 BuyCarRunner；结束条件仍是技术点数不足弹窗。")

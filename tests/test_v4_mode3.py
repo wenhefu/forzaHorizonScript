@@ -122,6 +122,43 @@ def test_v4_runner_defaults_to_vision_farm_and_shares_recognizer():
     assert runner.vision_farm_runner.recognizer is runner.recognizer
 
 
+def test_run_loop_retries_after_failure_then_completes():
+    runner = V4Mode3Runner.__new__(V4Mode3Runner)
+    runner._stop = threading.Event()
+    runner.report = SimpleNamespace(stopped_reason="ok")
+    runner._log = lambda m: None
+    runner._sleep = lambda s: True
+    runner._pad_provider = lambda: None
+    runner._recover_between_rounds = lambda pad: True
+    runner._loop_rounds = lambda v: 2
+    runner._farm_seconds = lambda f: 180.0
+    seq = iter([False, True, True])  # round 1 fails, then two successful rounds
+    runner.run_once = lambda **k: next(seq)
+    ok = V4Mode3Runner.run_loop(
+        runner, run_buy=True, run_farm=True, exit_after_farm=True, loop_rounds=2, max_consecutive_failures=3
+    )
+    assert ok is True
+
+
+def test_run_loop_stops_after_max_consecutive_failures():
+    runner = V4Mode3Runner.__new__(V4Mode3Runner)
+    runner._stop = threading.Event()
+    runner.report = SimpleNamespace(stopped_reason="buy_phase_failed")
+    runner._log = lambda m: None
+    runner._sleep = lambda s: True
+    runner._pad_provider = lambda: None
+    recovered = []
+    runner._recover_between_rounds = lambda pad: bool(recovered.append(1)) or True
+    runner._loop_rounds = lambda v: None  # infinite
+    runner._farm_seconds = lambda f: 180.0
+    runner.run_once = lambda **k: False  # always fails
+    ok = V4Mode3Runner.run_loop(
+        runner, run_buy=True, run_farm=True, exit_after_farm=True, loop_rounds=0, max_consecutive_failures=3
+    )
+    assert ok is False
+    assert len(recovered) == 2  # recovers after failures 1 and 2; the 3rd failure stops it
+
+
 def test_buy_loop_terminal_on_skill_points_exhausted():
     d = decide_buy_loop(fake_v3("skill_points_exhausted", selected_item="不够购买额外加成"))
     assert d.name == "buy_phase_done" and d.terminal is True
