@@ -12,6 +12,7 @@ from v4.decision import (
     is_target_event,
     normalize_button,
 )
+from v4.farm_runner import VisionFarmRunner
 from v4.mode3_runner import V4Mode3Runner
 from v4.watchdog import ProgressWatchdog
 
@@ -120,6 +121,50 @@ def test_v4_runner_defaults_to_vision_farm_and_shares_recognizer():
     assert runner.vision_farm_runner is not None
     # share one recognizer instance so the ONNX model is not loaded twice
     assert runner.vision_farm_runner.recognizer is runner.recognizer
+
+
+def test_buy_monitor_uses_fast_recognition_flags():
+    runner = V4Mode3Runner.__new__(V4Mode3Runner)
+    snapshot = SimpleNamespace(v3=fake_v3("vehicle_buy_grid"), smart_state="", elapsed_ms=1.0)
+    calls = []
+    runner._recognize = lambda **kwargs: (calls.append(kwargs) or snapshot)
+
+    assert V4Mode3Runner._recognize_buy_monitor(runner) is snapshot
+    assert calls == [{"full_ocr": False, "region_ocr": True}]
+
+
+def test_buy_monitor_accepts_legacy_no_arg_recognize_mocks():
+    runner = V4Mode3Runner.__new__(V4Mode3Runner)
+    snapshot = SimpleNamespace(v3=fake_v3("vehicle_buy_grid"), smart_state="", elapsed_ms=1.0)
+    runner._recognize = lambda: snapshot
+
+    assert V4Mode3Runner._recognize_buy_monitor(runner) is snapshot
+
+
+def test_farm_smart_hint_overrides_false_race_menu_to_hud():
+    runner = VisionFarmRunner.__new__(VisionFarmRunner)
+    snapshot = SimpleNamespace(
+        v3=fake_v3("race_menu", selected_item="", confidence=0.91),
+        smart_state="racing",
+        smart_confidence=0.92,
+    )
+
+    out = VisionFarmRunner._apply_smart_farm_hint(runner, snapshot)
+    assert out.v3.screen == "race_hud"
+    assert decide_farm_loop(out.v3).name == "race_drive_throttle"
+
+
+def test_farm_smart_hint_can_start_prestart_without_full_ocr():
+    runner = VisionFarmRunner.__new__(VisionFarmRunner)
+    snapshot = SimpleNamespace(
+        v3=fake_v3("unknown", selected_item="", confidence=0.0),
+        smart_state="prestart",
+        smart_confidence=0.93,
+    )
+
+    out = VisionFarmRunner._apply_smart_farm_hint(runner, snapshot)
+    assert out.v3.screen == "race_menu"
+    assert decide_farm_loop(out.v3).name == "farm_start_race"
 
 
 def test_run_loop_retries_after_failure_then_completes():

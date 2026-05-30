@@ -21,6 +21,16 @@ import time
 from ctypes import wintypes
 
 import focus
+from screen_detector import (
+    STATE_CONFIRM_RESTART,
+    STATE_CONTROLLER_DISCONNECTED,
+    STATE_PAUSE_MENU,
+    STATE_POST_RACE_NEXT,
+    STATE_PRESTART,
+    STATE_PRESTART_WRONG_SELECTION,
+    STATE_RACING,
+    STATE_RESULTS,
+)
 from v4.decision import decide_farm_loop, normalize_button
 from v4.recognizer import V4Recognizer
 
@@ -163,10 +173,62 @@ class VisionFarmRunner:
     @staticmethod
     def _settle_for(name: str) -> float:
         if name in ("farm_start_race", "farm_confirm_restart"):
-            return 1.8
+            return 1.15
         if name in ("farm_dismiss_controller", "farm_restart_results", "farm_graceful_exit_results"):
-            return 1.3
-        return 0.85
+            return 0.9
+        return 0.55
+
+    def _capture_farm_snapshot(self):
+        snapshot = self.recognizer.capture(full_ocr=False, region_ocr=True)
+        return self._apply_smart_farm_hint(snapshot)
+
+    def _apply_smart_farm_hint(self, snapshot):
+        smart_state = str(getattr(snapshot, "smart_state", "") or "")
+        smart_conf = float(getattr(snapshot, "smart_confidence", 0.0) or 0.0)
+        if smart_conf < 0.60:
+            return snapshot
+
+        hints = {
+            STATE_PRESTART: ("race_menu", "STARTEVENT", 0.82),
+            STATE_PRESTART_WRONG_SELECTION: ("race_menu", "not_start_focus", 0.66),
+            STATE_RACING: ("race_hud", "", 0.84),
+            STATE_RESULTS: ("race_result", "", 0.84),
+            STATE_CONFIRM_RESTART: ("modal_warning", "restart_event", 0.82),
+            STATE_CONTROLLER_DISCONNECTED: ("controller_disconnected", "", 0.82),
+            STATE_PAUSE_MENU: ("pause_menu", "", 0.70),
+            STATE_POST_RACE_NEXT: ("post_race_next", "", 0.78),
+        }
+        hint = hints.get(smart_state)
+        if not hint:
+            return snapshot
+
+        v3 = snapshot.v3
+        current_screen = str(getattr(v3, "screen", "") or "unknown")
+        current_conf = float(getattr(v3, "confidence", 0.0) or 0.0)
+        hinted_screen, hinted_selected, hinted_conf = hint
+        override_screens = {
+            "unknown",
+            "idle_showcase",
+            "loading_transition",
+            "race_menu",
+            "pause_story",
+            "pause_menu",
+            "modal_warning",
+        }
+        if current_screen not in override_screens and current_conf >= 0.80:
+            return snapshot
+
+        # Farm loop safety prefers the old color/layout detector for race HUD,
+        # results, and restart modal. It is much faster than full OCR and helps
+        # prevent YOLO's occasional race_menu/race_hud confusion.
+        v3.screen = hinted_screen
+        v3.confidence = max(current_conf, min(0.95, smart_conf, hinted_conf))
+        if hinted_selected and not str(getattr(v3, "selected_item", "") or ""):
+            v3.selected_item = hinted_selected
+        reasons = getattr(v3, "reasons", None)
+        if isinstance(reasons, list):
+            reasons.append(f"V4 farm smart hint {smart_state}->{hinted_screen} conf={smart_conf:.2f}")
+        return snapshot
 
     # -- main loop ---------------------------------------------------------
     def _run(self, startup_delay, total_seconds, auto_focus, require_foreground) -> None:
@@ -217,7 +279,7 @@ class VisionFarmRunner:
                     continue
 
                 try:
-                    snapshot = self.recognizer.capture(full_ocr=True, region_ocr=True)
+                    snapshot = self._capture_farm_snapshot()
                 except Exception as exc:
                     self.logger.warning("vision farm capture failed: %s", exc)
                     if not self._sleep(0.8):

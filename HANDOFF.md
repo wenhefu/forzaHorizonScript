@@ -1,5 +1,22 @@
 # Handoff - Forza Horizon 6 Helper
 
+## 2026-05-30 hotfix 24 - V4 fast-path recognition pacing
+
+User feedback after the latest GUI report: the V4 flow felt extremely slow ("like an old person looking at a phone"). The report confirmed the bottleneck was not YOLO inference: dense buy-grid/manufacturer full-frame OCR samples reached 4-7s each, and fixed post-button settle waits added more latency.
+
+Changed:
+- `v4/mode3_runner.py`: `_recognize()` now accepts `full_ocr` / `region_ocr` flags. The V1 BuyCarRunner supervision heartbeat uses `_recognize_buy_monitor()` (`full_ocr=False`, small-region OCR still on), so it can catch route handoff/stalls without doing full-screen OCR over dense car grids every few seconds.
+- `v4/mode3_runner.py`: shortened conservative fixed settle waits (`A` route transitions 1.8s -> 1.15s, normal steps 0.85s -> 0.55s) and reduced buy-monitor churn (`_child_watchdog_interval` caps at 8s instead of 5s).
+- `v4/farm_runner.py`: Vision farm loop now captures with `full_ocr=False` by default and applies the existing V1 lightweight color/layout detector as a safety hint for `race_hud`, `race_result`, restart modal, prestart, controller modal, pause, and post-race pages. This keeps the farm leg snappy while avoiding the known YOLO `race_menu` vs `race_hud` confusion.
+- `tests/test_v4_mode3.py`: added regressions for the fast buy-monitor flags and the farm smart-hint fallback.
+
+Verification:
+- `python -m py_compile v4\mode3_runner.py v4\farm_runner.py tests\test_v4_mode3.py`
+- `python -m pytest tests\test_v4_mode3.py -q` -> 60 passed
+- `python -m pytest -q` -> 127 passed, 22 skipped
+
+No V1 stable main-flow files were edited. Next live validation should compare the next `reports\v4_mode3_latest.json` phase totals against the previous 212.7s run; expected win is fewer multi-second `monitor_buy_phase` OCR stalls and faster EventLab/farm button cadence.
+
 ## 2026-05-30 hotfix 23 - Require EventLab vehicle favorite filter before selecting 22B
 
 Latest GUI report (`reports/v4_mode3_latest.json`, 2026-05-30 09:53:31-09:57:04) showed V4 reaching `eventlab_my_cars` with selected item `IMPREZA 22B-STI VERSION` and immediately issuing `select_22b_for_eventlab`. That skipped the intended `Y -> 收藏筛选 -> B` verification because `_eventlab_my_cars_decision()` checked `is_22b()` before `favorite_filter_done`.

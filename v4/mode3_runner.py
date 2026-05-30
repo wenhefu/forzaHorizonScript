@@ -427,7 +427,7 @@ class V4Mode3Runner:
             if now >= next_monitor:
                 next_monitor = now + monitor_interval
                 try:
-                    snapshot = self._recognize()
+                    snapshot = self._recognize_buy_monitor()
                     token = progress_token(snapshot.v3, extra=f"buy:{self.buy_runner.stop_reason or ''}")
                     changed = watchdog.observe(phase, token)
                     self._record_step(
@@ -490,7 +490,7 @@ class V4Mode3Runner:
                         for button in ("a", "b", "start"):
                             if not self._tap(pad, button, after=1.4):
                                 return False
-                            recovered = self._recognize()
+                            recovered = self._recognize_buy_monitor()
                             self._record_step(
                                 phase,
                                 recovered,
@@ -783,10 +783,12 @@ class V4Mode3Runner:
         if v3.screen == "eventlab_my_cars" and context.favorite_filter_checked:
             context.favorite_filter_done = True
 
-    def _recognize(self) -> V4Snapshot:
-        snapshot = self.recognizer.capture(full_ocr=True, region_ocr=True)
+    def _recognize(self, full_ocr: bool = True, region_ocr: bool = True) -> V4Snapshot:
+        snapshot = self.recognizer.capture(full_ocr=full_ocr, region_ocr=region_ocr)
         self.logger.info(
-            "V4 recognize screen=%s tab=%s selected=%s conf=%.2f smart=%s elapsed=%.1fms",
+            "V4 recognize full_ocr=%s region_ocr=%s screen=%s tab=%s selected=%s conf=%.2f smart=%s elapsed=%.1fms",
+            full_ocr,
+            region_ocr,
             snapshot.v3.screen,
             snapshot.v3.active_tab,
             snapshot.v3.selected_item,
@@ -795,6 +797,22 @@ class V4Mode3Runner:
             snapshot.elapsed_ms,
         )
         return snapshot
+
+    def _recognize_buy_monitor(self) -> V4Snapshot:
+        """Fast semantic heartbeat while V1 BuyCarRunner is doing the work.
+
+        The monitor only needs to catch handoff pages and obvious stalls. Full
+        OCR on dense car grids can take seconds, so use detector/rules plus
+        small-region OCR here and keep full OCR for the actual V4 route steps.
+        The TypeError fallback preserves older unit-test monkeypatches that
+        replace ``_recognize`` with a no-argument lambda.
+        """
+        try:
+            return self._recognize(full_ocr=False, region_ocr=True)
+        except TypeError as exc:
+            if "unexpected keyword" not in str(exc):
+                raise
+            return self._recognize()
 
     def _record_step(
         self,
@@ -907,12 +925,12 @@ class V4Mode3Runner:
             "choose_single_player",
             "select_22b_for_eventlab",
         }:
-            return 1.8
+            return 1.15
         if decision.name in {"open_pause_from_world", "open_vehicle_favorite_filter"}:
-            return 1.2
+            return 0.85
         if decision.name == "dismiss_controller_modal":
-            return 1.5
-        return 0.85
+            return 1.0
+        return 0.55
 
     @staticmethod
     def _farm_seconds(override: float | None) -> float | None:
@@ -935,7 +953,7 @@ class V4Mode3Runner:
         return max(0.0, float(self.watchdog_seconds))
 
     def _child_watchdog_interval(self) -> float:
-        return max(0.05, min(5.0, float(self.watchdog_seconds) / 12.0))
+        return max(0.25, min(8.0, float(self.watchdog_seconds) / 10.0))
 
     def _buy_recovery_seconds(self) -> float:
         return max(0.05, min(30.0, float(self.watchdog_seconds) / 4.0))
